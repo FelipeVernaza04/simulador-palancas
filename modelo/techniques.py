@@ -15,7 +15,7 @@ class Technique:
     name: str
     exercise: str            # "squat" | "deadlift"
     w_frac: float            # distancia entre centros de tobillos / estatura
-    toe_out_deg: float       # rotación externa del pie (reduce la base de apoyo antero-posterior)
+    toe_out_deg: float       # rotación externa del pie respecto a la dirección de avance (reduce la base de apoyo antero-posterior)
     calibrated: bool = False
     stance: str = "frac"     # "shoulder": tobillos bajo los hombros (ancho = Anthro.shoulder_w; si no hay medida, w_frac) | "frac": w_frac * estatura
     source: str = ""
@@ -36,6 +36,10 @@ class Technique:
     eps_top: float = -0.03   # hombro por detrás de la barra arriba (m)
     p: float = 1.0           # sincronía: <1 cadera sube antes, >1 cadera se retrasa
     plate_radius: float = 0.225
+    # --- rodilla en 3D (ver model._knee_3d) ---
+    knee_out_deg: float = 0.0     # dirección horizontal en que se abre la rodilla, hacia afuera respecto al eje x (0 = hacia adelante).
+                                  # Rodilla sobre el pie: ver README, «Dirección de pies y rodillas».
+    grip_inside: bool = False     # peso muerto: agarre por dentro de las piernas (sumo)
 
 
 _ESC = "Escamilla y cols. (2000), 40 powerlifters hombres (~167 cm, 76 kg); stance y ángulo de pie publicados"
@@ -44,26 +48,26 @@ _SWI = "Swinton y cols. (2012), 12 powerlifters hombres (180,3 cm, 100,2 kg), 70
 TECHNIQUES = {
     "sentadilla_barra_alta": Technique(
         "Sentadilla barra alta (squat 'tradicional')", "squat", w_frac=48.3 / 180.3, toe_out_deg=0, stance="shoulder", calibrated=True,
-        source=_SWI + ". toe_out, lam y d: sin fuente (ilustrativos).",
-        lam=1.0, d=0.06, shank_max_deg=32.8, depth_deg=-1.9, bar_x_offset=0.040,
+        source=_SWI + ". toe_out, knee_out, lam y d: sin fuente (ilustrativos).",
+        knee_out_deg=12.0, lam=1.0, d=0.06, shank_max_deg=32.8, depth_deg=-1.9, bar_x_offset=0.040,
         ranges=dict(shank_max_deg=(28.8, 36.5), depth_deg=(-7.6, 6.6), bar_x_offset=(0.015, 0.060))),
     "sentadilla_barra_baja": Technique(
         "Sentadilla barra baja (squat 'powerlifting')", "squat", w_frac=89.6 / 180.3, toe_out_deg=0, stance="shoulder", calibrated=True,
-        source=_SWI + ". toe_out, lam y d: sin fuente (ilustrativos).",
-        lam=0.93, d=0.07, shank_max_deg=20.8, depth_deg=2.7, bar_x_offset=-0.021,
+        source=_SWI + ". toe_out, knee_out, lam y d: sin fuente (ilustrativos).",
+        knee_out_deg=12.0, lam=0.93, d=0.07, shank_max_deg=20.8, depth_deg=2.7, bar_x_offset=-0.021,
         ranges=dict(shank_max_deg=(16.9, 25.6), depth_deg=(-15.0, 8.7), bar_x_offset=(-0.044, 0.011))),
     "sentadilla_frontal": Technique(
         "Sentadilla frontal", "squat", w_frac=0.30, toe_out_deg=0, stance="shoulder", calibrated=False,
         source="Sin datos: valores ilustrativos.",
-        lam=1.0, d=-0.05, shank_max_deg=40, depth_deg=5, bar_x_offset=0.0),
+        knee_out_deg=12.0, lam=1.0, d=-0.05, shank_max_deg=40, depth_deg=5, bar_x_offset=0.0),
     "peso_muerto_convencional": Technique(
-        "Peso muerto convencional", "deadlift", w_frac=37 / 167, toe_out_deg=0, stance="shoulder", calibrated=True, source=_ESC,
-        f_h0=0.814, eps0=0.12, eps_top=0.02, p=1.6, bar_x_offset=-0.0315,
+        "Peso muerto convencional", "deadlift", w_frac=37 / 167, toe_out_deg=15, stance="shoulder", calibrated=True, source=_ESC,
+        knee_out_deg=15.0, f_h0=0.814, eps0=0.12, eps_top=0.02, p=1.6, bar_x_offset=-0.0315,
         at_bound=("eps0", "eps_top", "p"),
         ranges=dict(f_h0=(0.745, 0.842), eps0=(0.076, 0.12), eps_top=(-0.014, 0.02), p=(0.835, 1.6), bar_x_offset=(-0.053, 0.017))),
     "peso_muerto_sumo": Technique(
-        "Peso muerto sumo", "deadlift", w_frac=73 / 168, toe_out_deg=25, calibrated=True, source=_ESC,
-        f_h0=0.762, eps0=0.12, eps_top=0.02, p=1.6, bar_x_offset=-0.075,
+        "Peso muerto sumo", "deadlift", w_frac=73 / 168, toe_out_deg=45, calibrated=True, source=_ESC,
+        knee_out_deg=30.0, grip_inside=True, f_h0=0.762, eps0=0.12, eps_top=0.02, p=1.6, bar_x_offset=-0.075,
         at_bound=("eps0", "eps_top", "p"),
         ranges=dict(f_h0=(0.635, 0.794), eps0=(0.108, 0.12), eps_top=(-0.012, 0.02), p=(0.852, 1.6), bar_x_offset=(-0.082, -0.067))),
 }

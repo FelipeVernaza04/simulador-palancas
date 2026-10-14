@@ -33,19 +33,20 @@ def proxy_athlete(H: float, mass: float) -> RawMeasures:
 
 # --- geometría auxiliar ------------------------------------------------------------------------------------------------------
 def incl_3d(r, p, q, h_a):
-    """Inclinación sobre la horizontal (°) del segmento p->q con las piernas en el plano inclinado."""
-    psi = math.radians(r.psi_deg)
+    """Inclinación sobre la horizontal (°) del segmento p->q con las coordenadas 3D del resultado (x, y y distancia lateral)."""
     (x1, y1), (x2, y2) = r.joints[p], r.joints[q]
-    dz = ((y2 - y1) / math.cos(psi)) * math.sin(psi)
+    dz = r.lateral[q] - r.lateral[p]
     return math.degrees(math.atan2(y2 - y1, math.hypot(x2 - x1, dz)))
 
 
 def knee_flexion_inplane(r, a):
-    psi = math.radians(r.psi_deg)
-    (xa, _), (xk, yk), (xh, yh) = r.joints["tobillo"], r.joints["rodilla"], r.joints["cadera"]
-    vk, vh = (yk - a.ha) / math.cos(psi), (yh - a.ha) / math.cos(psi)
-    u, w = (xa - xk, -vk), (xh - xk, vh - vk)
-    c = (u[0] * w[0] + u[1] * w[1]) / (math.hypot(*u) * math.hypot(*w))
+    """Flexión de rodilla (°): 180° menos el ángulo 3D tibia-muslo en la rodilla. (Nombre histórico: antes la rodilla estaba en el
+    plano de la pierna; ahora se calcula con las tres coordenadas.)"""
+    (xa, ya), (xk, yk), (xh, yh) = r.joints["tobillo"], r.joints["rodilla"], r.joints["cadera"]
+    za, zk, zh = r.lateral["tobillo"], r.lateral["rodilla"], r.lateral["cadera"]
+    u = (xa - xk, ya - yk, za - zk)
+    w = (xh - xk, yh - yk, zh - zk)
+    c = sum(i * j for i, j in zip(u, w)) / (math.sqrt(sum(i * i for i in u)) * math.sqrt(sum(j * j for j in w)))
     return 180.0 - math.degrees(math.acos(max(-1.0, min(1.0, c))))
 
 
@@ -64,10 +65,10 @@ DL_LABELS = ["brazo cadera LO", "brazo rodilla LO", "brazo tobillo LO", "muslo s
 DL = {
     "peso_muerto_convencional": dict(
         mean=[27.9, -3.3, 6.1, 44, 83, 21.1, 3.2, 2.9, 51], sd=[5.2, 5.2, 3.7, 6, 4, 3.6, 3.2, 4.0, 6],
-        w_frac=37 / 167, toe=0),
+        w_frac=37 / 167, toe=15),
     "peso_muerto_sumo": dict(
         mean=[27.9, -13.2, -4.3, 37, 74, 23.5, -4.8, -5.2, 47], sd=[6.2, 8.0, 5.0, 6, 6, 5.4, 5.4, 5.3, 5],
-        w_frac=73 / 168, toe=25),
+        w_frac=73 / 168, toe=45),
 }
 DL_PARAMS = ("f_h0", "eps0", "eps_top", "p", "bar_x_offset")
 DL_BOUNDS = ([0.35, -0.02, -0.10, 0.5, -0.25], [0.90, 0.15, 0.02, 2.0, 0.10])

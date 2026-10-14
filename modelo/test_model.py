@@ -5,15 +5,21 @@ import pytest
 
 from anthropometry import (SAMPLE_MALE, from_raw, closure_checks, total_mass_check, mass_points, G, DE_LEVA)
 from techniques import TECHNIQUES
-from model import solve, Infeasible
+from model import solve, Infeasible, KNEE_CLEAR, _knee_3d, _two_link
 from uncertainty import draw_perturbations, monte_carlo
 
 A = from_raw(SAMPLE_MALE)
 S_GRID = [0.0, 0.25, 0.5, 0.75, 1.0]
 
 
-def _v(a, y, psi):
-    return (y - a.ha) / math.cos(psi)
+def _p3(r, name):
+    """Punto 3D (x adelante, y arriba, z lateral hacia afuera) de una articulación de la pierna derecha."""
+    x, y = r.joints[name]
+    return x, y, r.lateral[name]
+
+
+def _dist(p, q):
+    return math.dist(p, q)
 
 
 @pytest.mark.parametrize("key", list(TECHNIQUES))
@@ -21,24 +27,85 @@ def test_segment_lengths_preserved(key):
     t = TECHNIQUES[key]
     for s in S_GRID:
         r = solve(A, t, 100, s)
-        psi = math.radians(r.psi_deg)
-        xa, ya = r.joints["tobillo"]
-        xk, yk = r.joints["rodilla"]
-        xh, yh = r.joints["cadera"]
-        # las piernas viven en el plano inclinado: longitudes reales con v = (y - ha)/cos(psi)
-        assert math.hypot(xk - xa, _v(A, yk, psi)) == pytest.approx(A.Ls, abs=1e-6)
-        assert math.hypot(xh - xk, _v(A, yh, psi) - _v(A, yk, psi)) == pytest.approx(A.Lt, abs=1e-6)
+        # tibia y muslo conservan su longitud real en 3D (la rodilla puede abrirse fuera del plano tobillo-cadera-eje x)
+        assert _dist(_p3(r, "tobillo"), _p3(r, "rodilla")) == pytest.approx(A.Ls, abs=1e-6)
+        assert _dist(_p3(r, "rodilla"), _p3(r, "cadera")) == pytest.approx(A.Lt, abs=1e-6)
         xs, ys = r.joints["hombro"]
+        xh, yh = r.joints["cadera"]
         assert math.hypot(xs - xh, ys - yh) == pytest.approx(A.Ltr, abs=1e-6)   # el tronco está en el plano sagital
 
 
-def test_deadlift_arm_length_and_vertical_bar():
-    t = TECHNIQUES["peso_muerto_convencional"]
+def test_knee_3d_with_straight_toes_equals_planar_model():
+    """Con knee_out = 0 la rodilla es la del modelo plano original (rodilla en el plano de la pierna que contiene al eje x)."""
+    t = replace(TECHNIQUES["peso_muerto_convencional"], knee_out_deg=0.0)
     for s in S_GRID:
+        r = solve(A, t, 100, s)
+        psi = math.radians(r.psi_deg)
+        xa, ya = r.joints["tobillo"]
+        xh, yh = r.joints["cadera"]
+        vh = (yh - A.ha) / math.cos(psi)
+        ku, kv = _two_link(xa, 0.0, xh, vh, A.Ls, A.Lt)
+        assert r.joints["rodilla"][0] == pytest.approx(ku, abs=1e-6)
+        assert r.joints["rodilla"][1] == pytest.approx(A.ha + kv * math.cos(psi), abs=1e-6)
+
+
+def test_knee_3d_keeps_hip_ankle_distance_and_branch_forward():
+    ankle, hip = (-0.07, 0.08, 0.38), (-0.10, 0.70, 0.09)
+    for out in (0.0, 20.0, 45.0, 60.0):
+        k = _knee_3d(A, ankle, hip, out)
+        assert _dist(k, ankle) == pytest.approx(A.Ls, abs=1e-9)
+        assert _dist(k, hip) == pytest.approx(A.Lt, abs=1e-9)
+    # más apertura -> la rodilla se desplaza hacia afuera y su proyección sagital queda más atrás
+    k0, k45 = _knee_3d(A, ankle, hip, 0.0), _knee_3d(A, ankle, hip, 45.0)
+    assert k45[2] > k0[2] and k45[0] < k0[0]
+
+
+def test_deadlift_arm_length_and_bar_only_moves_forward_to_clear_the_knee():
+    t = TECHNIQUES["peso_muerto_convencional"]
+    shifted = 0
+    for s in [i / 20 for i in range(21)]:
         r = solve(A, t, 150, s)
         xs, ys = r.joints["hombro"]
         assert math.hypot(r.bar[0] - xs, r.bar[1] - ys) == pytest.approx(A.La, abs=1e-6)
-        assert r.bar[0] == pytest.approx(t.bar_x_offset, abs=1e-12)
+        assert r.bar[0] >= t.bar_x_offset - 1e-12            # solo se adelanta, nunca se atrasa
+        shifted += r.bar[0] > t.bar_x_offset + 1e-9
+    assert shifted < 21                                       # fuera del cruce con la rodilla la barra sigue la vertical
+    assert solve(A, t, 150, 0.0).bar[0] == pytest.approx(t.bar_x_offset, abs=1e-12)
+    assert solve(A, t, 150, 1.0).bar[0] == pytest.approx(t.bar_x_offset, abs=1e-12)
+
+
+@pytest.mark.parametrize("key", ["peso_muerto_convencional", "peso_muerto_sumo"])
+@pytest.mark.parametrize("athlete", ["SAMPLE", "SMALL", "TALL"])
+def test_bar_never_through_the_knee(key, athlete):
+    from dataclasses import replace as rep
+    raws = {"SAMPLE": SAMPLE_MALE,
+            "SMALL": rep(SAMPLE_MALE, H=1.62, h_troc=0.85, Lt_raw=0.40, Ls_raw=0.37, ha=0.07, Lf=0.24, Ltr_raw=0.47, La_raw=0.55),
+            "TALL": rep(SAMPLE_MALE, H=1.92, h_troc=1.01, Lt_raw=0.48, Ls_raw=0.45, ha=0.09, Lf=0.29, Ltr_raw=0.55, La_raw=0.66)}
+    a = from_raw(raws[athlete])
+    t = TECHNIQUES[key]
+    for i in range(41):
+        try:
+            r = solve(a, t, 130, i / 40)
+        except Infeasible:
+            continue
+        d = math.hypot(r.bar[0] - r.joints["rodilla"][0], r.bar[1] - r.joints["rodilla"][1])
+        assert d >= KNEE_CLEAR - 1e-6, (i / 40, d)
+
+
+def test_sumo_knees_track_over_the_feet_and_come_in_as_the_legs_extend():
+    t = TECHNIQUES["peso_muerto_sumo"]
+    r0, r1 = solve(A, t, 100, 0.0), solve(A, t, 100, 1.0)
+    za = r0.lateral["tobillo"]
+    assert abs(r0.lateral["rodilla"] - za) < 0.10                       # rodilla en torno al pie al despegar (no 18 cm adentro)
+    assert r0.lateral["rodilla"] - r1.lateral["rodilla"] > 0.05         # y se acerca al plano medio al extender (sobre todo al final)
+    assert solve(A, t, 100, 0.75).lateral["rodilla"] > r1.lateral["rodilla"]
+    assert r1.lateral["rodilla"] > r1.lateral["cadera"]                  # sin cruzar la cadera
+
+
+@pytest.mark.parametrize("key", ["sentadilla_barra_alta", "sentadilla_barra_baja", "sentadilla_frontal"])
+def test_squat_knees_do_not_collapse_inside_the_feet(key):
+    r = solve(A, TECHNIQUES[key], 100, 1.0)
+    assert abs(r.lateral["rodilla"] - r.lateral["tobillo"]) < 0.05      # pies rectos, rodilla sobre el pie en el fondo
 
 
 def test_bar_only_hip_moment_identity():
@@ -110,12 +177,20 @@ def test_sumo_has_shorter_bar_travel():
 def test_calibration_reproduces_published_targets(key):
     """Cada objetivo publicado queda dentro de 2 DE; excepción conocida: la flexión de torso de la sentadilla (definición distinta)."""
     from calibrate_joint import predict_from_technique
-    from calibrate import SQ_LABELS
+    from calibrate import SQ_LABELS, DL_LABELS
     _, z = predict_from_technique(key)
     if key.startswith("sentadilla"):
         torso = SQ_LABELS.index("flexión de torso (°)")
         assert abs(z[torso]) < 6.0          # desajuste conocido y documentado (README)
         z = np.delete(z, torso)
+    if key == "peso_muerto_sumo":
+        # Excepción documentada (README, «Dirección de pies y rodillas»): los brazos de momento publicados para sumo de rodilla
+        # (-13,2 y -4,8 cm) y de tobillo (-4,3 y -5,2 cm) ponen la barra DETRÁS del centro de la articulación, lo que no es
+        # compatible con que la barra pase por delante de la rótula y de la tibia. Se prioriza la geometría físicamente posible;
+        # esos cuatro objetivos pueden llegar a 3 DE y los demás siguen dentro de 2 DE.
+        bar_arms = [DL_LABELS.index(n) for n in ("brazo rodilla LO", "brazo rodilla KP", "brazo tobillo LO", "brazo tobillo KP")]
+        assert np.all(np.abs(z[bar_arms]) < 3.0), z
+        z = np.delete(z, bar_arms)
     assert np.all(np.abs(z) < 2.0), z
 
 

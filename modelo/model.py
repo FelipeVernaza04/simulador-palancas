@@ -10,6 +10,9 @@ from anthropometry import Anthro, mass_points, G
 from techniques import Technique
 
 LUMBAR_MU = 0.10   # punto lumbar a esta fracción de Ltr sobre la cadera (APROXIMACIÓN)
+KNEE_FRONT = 0.05  # centro articular de la rodilla -> cara anterior de la rótula, con partes blandas (m) (APROXIMACIÓN)
+BAR_RADIUS = 0.014 # barra olímpica de 28 mm
+KNEE_CLEAR = KNEE_FRONT + BAR_RADIUS   # distancia mínima centro de barra - centro de rodilla en el plano sagital
 
 
 class Infeasible(Exception):
@@ -20,6 +23,7 @@ class Infeasible(Exception):
 class Result:
     s: float
     joints: dict            # nombre -> (x, y) en el plano sagital
+    lateral: dict           # tobillo, rodilla, cadera -> distancia lateral al plano medio (m), pierna derecha (+ hacia afuera)
     bar: tuple
     psi_deg: float
     trunk_deg: float
@@ -55,6 +59,29 @@ def _two_link(ax, ay, hx, hy, L1, L2):
     ex, ey = dx / d, dy / d
     cands = [(ax + aa * ex - h * ey, ay + aa * ey + h * ex), (ax + aa * ex + h * ey, ay + aa * ey - h * ex)]
     return max(cands, key=lambda p: p[0])
+
+
+def _knee_3d(a: Anthro, ankle, hip, out_deg):
+    """Rodilla de la pierna derecha para un tobillo y una cadera 3D, puntos (x adelante, y arriba, z lateral hacia afuera).
+
+    Las longitudes de tibia y muslo fijan una circunferencia de posiciones posibles alrededor del eje tobillo-cadera. La rodilla se
+    abre en el plano que contiene ese eje y la dirección horizontal (cos th, 0, sin th), con th = `out_deg` hacia afuera: la rodilla
+    sigue la dirección del pie. Con th = 0 es el plano que contiene al eje x (el modelo plano original: misma rodilla que antes).
+    """
+    d = [h - t for h, t in zip(hip, ankle)]
+    D = math.sqrt(sum(c * c for c in d))
+    if D > a.Ls + a.Lt + 1e-9 or D < abs(a.Ls - a.Lt) - 1e-9:
+        raise Infeasible("cadera fuera del alcance de la pierna")
+    w = [c / D for c in d]
+    aa = (a.Ls * a.Ls - a.Lt * a.Lt + D * D) / (2 * D)
+    h = _clampsqrt(a.Ls * a.Ls - aa * aa)
+    th = math.radians(out_deg)
+    u = (math.cos(th), 0.0, math.sin(th))
+    pr = sum(ui * wi for ui, wi in zip(u, w))
+    n = [ui - pr * wi for ui, wi in zip(u, w)]
+    nn = math.sqrt(sum(c * c for c in n))
+    n = [c / nn for c in n] if nn > 1e-9 else [1.0, 0.0, 0.0]
+    return tuple(ankle[i] + aa * w[i] + h * n[i] for i in range(3))
 
 
 def _moments(a: Anthro, mb: float, psi: float, x_a, x_k, x_h, hip, shoulder, trunk_phi, bar_x, arms_x, toe_out_deg):
@@ -106,7 +133,7 @@ def _moments(a: Anthro, mb: float, psi: float, x_a, x_k, x_h, hip, shoulder, tru
     return total, pr["bar"], pr["body"], arms_bar, cop, (-half <= cop <= half)
 
 
-def _pack(a, t, s, mb, ankle, knee, hip, shoulder, bar_xy, psi, phi, bar_x, arms_x):
+def _pack(a, t, s, mb, ankle, knee, hip, shoulder, bar_xy, psi, phi, bar_x, arms_x, lateral):
     x_a, x_k, x_h = ankle[0], knee[0], hip[0]
     total, barm, bodym, arms, cop, ok = _moments(a, mb, psi, x_a, x_k, x_h, hip, shoulder, phi, bar_x, arms_x,
                                                  t.toe_out_deg)
@@ -116,7 +143,7 @@ def _pack(a, t, s, mb, ankle, knee, hip, shoulder, bar_xy, psi, phi, bar_x, arms
     warnings = []
     if not ok:
         warnings.append(f"CoP fuera de la base de apoyo ({cop:+.3f} m)")
-    return Result(s=s, joints={"tobillo": ankle, "rodilla": knee, "cadera": hip, "hombro": shoulder},
+    return Result(s=s, joints={"tobillo": ankle, "rodilla": knee, "cadera": hip, "hombro": shoulder}, lateral=lateral,
                   bar=bar_xy, psi_deg=math.degrees(psi), trunk_deg=math.degrees(phi), moments=total,
                   bar_moments=barm, body_moments=bodym, arms=arms, shares=shares, cop_x=cop,
                   cop_in_base=ok, warnings=warnings)
@@ -155,10 +182,15 @@ def solve_squat(a: Anthro, t: Technique, load_kg: float, s: float) -> Result:
     phi = math.atan2(B, A) + math.asin(C / R)
 
     hip = (u_h, h_a + yp)
-    knee = (u_k, h_a + v_k * math.cos(psi))
+    z_h = a.b / 2.0
+    z_a = z_h + c
+    # la cadera y el tobillo vienen del plano de la pierna; la rodilla se abre según t.knee_out_deg (ver _knee_3d)
+    kx, ky, kz = _knee_3d(a, (x_a, h_a, z_a), (u_h, hip[1], z_h), t.knee_out_deg)
+    knee = (kx, ky)
     shoulder = (u_h + a.Ltr * math.sin(phi), hip[1] + a.Ltr * math.cos(phi))
     bar_xy = (u_h + A * math.sin(phi) - B * math.cos(phi), hip[1] + A * math.cos(phi) + B * math.sin(phi))
-    return _pack(a, t, s, load_kg, (x_a, h_a), knee, hip, shoulder, bar_xy, psi, phi, bar_xy[0], shoulder[0])
+    lateral = {"tobillo": z_a, "rodilla": kz, "cadera": z_h}
+    return _pack(a, t, s, load_kg, (x_a, h_a), knee, hip, shoulder, bar_xy, psi, phi, bar_xy[0], shoulder[0], lateral)
 
 
 def solve_deadlift(a: Anthro, t: Technique, load_kg: float, s: float) -> Result:
@@ -176,24 +208,40 @@ def solve_deadlift(a: Anthro, t: Technique, load_kg: float, s: float) -> Result:
     y_b_top = y_h_top + a.Ltr - _clampsqrt(a.La ** 2 - t.eps_top ** 2)
     y_b = t.plate_radius + s * (y_b_top - t.plate_radius)
 
-    x_sh = x_b + eps
-    y_sh = y_b + _clampsqrt(a.La ** 2 - eps ** 2)
     y_h = h_a + yp
-    dy = y_sh - y_h
-    if dy < 0 or dy > a.Ltr + 1e-9:
-        raise Infeasible("el hombro no es alcanzable desde esa altura de cadera")
-    x_h = x_sh - _clampsqrt(a.Ltr ** 2 - dy ** 2)
-    phi = math.atan2(x_sh - x_h, dy)
     psi = math.atan2(c, yp)
-    v_h = math.hypot(yp, c)
-    ku, kv = _two_link(x_a, 0.0, x_h, v_h, a.Ls, a.Lt)
+    z_h = a.b / 2.0
+    z_a = z_h + c
+    x_sh = x_b + eps      # el hombro queda donde lo pone la ficha de técnica (hombro por delante de la barra en `eps`)
+
+    # La barra no puede atravesar la rodilla: si su centro pasa a menos de KNEE_CLEAR del centro de la rodilla, la barra se adelanta
+    # lo justo respecto del cuerpo (el hombro, la cadera y la rodilla no se mueven: los brazos se inclinan un poco hacia adelante,
+    # que es lo que hace un levantador real al rodear las rodillas). Con la rodilla abierta en la dirección del pie casi no actúa;
+    # es una salvaguarda para técnicas o medidas con poco margen. La altura del hombro depende de la inclinación del brazo, y con
+    # ella la cadera y la rodilla, así que se itera (converge en 2-3 pasos: el desplazamiento de la rodilla es de segundo orden).
+    xbe = x_b
+    for _ in range(12):
+        e = x_sh - xbe
+        y_sh = y_b + _clampsqrt(a.La ** 2 - e ** 2)
+        dy = y_sh - y_h
+        if dy < 0 or dy > a.Ltr + 1e-9:
+            raise Infeasible("el hombro no es alcanzable desde esa altura de cadera")
+        x_h = x_sh - _clampsqrt(a.Ltr ** 2 - dy ** 2)
+        kx, ky, kz = _knee_3d(a, (x_a, h_a, z_a), (x_h, y_h, z_h), t.knee_out_deg)
+        dyk = abs(y_b - ky)
+        need = kx + math.sqrt(KNEE_CLEAR ** 2 - dyk ** 2) if dyk < KNEE_CLEAR else -math.inf
+        if need <= xbe + 1e-7:
+            break
+        xbe = need
+    phi = math.atan2(x_sh - x_h, dy)
     hip = (x_h, y_h)
-    knee = (ku, h_a + kv * math.cos(psi))
+    knee = (kx, ky)
     shoulder = (x_sh, y_sh)
     from anthropometry import mass_points as _mp
     f_arm = _mp(a)["f_arm_com"]
-    arms_x = x_sh + f_arm * (x_b - x_sh)
-    return _pack(a, t, s, load_kg, (x_a, h_a), knee, hip, shoulder, (x_b, y_b), psi, phi, x_b, arms_x)
+    arms_x = x_sh + f_arm * (xbe - x_sh)
+    lateral = {"tobillo": z_a, "rodilla": kz, "cadera": z_h}
+    return _pack(a, t, s, load_kg, (x_a, h_a), knee, hip, shoulder, (xbe, y_b), psi, phi, xbe, arms_x, lateral)
 
 
 def solve(a: Anthro, t: Technique, load_kg: float, s: float) -> Result:

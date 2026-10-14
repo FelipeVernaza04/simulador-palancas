@@ -14,6 +14,6 @@ Abrir `index.html` en el navegador (es un solo archivo, sin instalación; los da
 
 ## Qué hay que saber antes de usarla
 - Modelo sagital 2D, cuasi-estático y simétrico; calibrado con datos publicados de levantadores hombres (Escamilla y cols., 2000; Swinton y cols., 2012). No se extrapola a mujeres ni a levantadores avanzados.
-- Postura estándar: tobillos bajo los hombros y pies rectos (sumo conserva su postura ancha).
+- Postura: tobillos bajo los hombros en sentadilla y convencional (sumo conserva su postura ancha). Pies rectos en sentadilla, abiertos 15° en convencional y 45° en sumo; la rodilla sigue la dirección del pie (valores de criterio de entrenador, sin fuente publicada). La barra se adelanta lo justo para no atravesar la rodilla.
 - Algunas cifras son inferidas (desfase de cadera de +5,8 cm) o aproximadas (zona lumbar), y los textos de las indicaciones son borradores para validar con entrenadores. Detalle en `modelo/README.md`.
 - Las medidas se toman con el protocolo de medición con cinta (12 medidas).

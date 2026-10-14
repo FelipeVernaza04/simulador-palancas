@@ -6,6 +6,9 @@
   "use strict";
   const G = 9.81;
   const LUMBAR_MU = 0.10;
+  const KNEE_FRONT = 0.05;  // centro articular de la rodilla -> cara anterior de la rótula, con partes blandas (m) (aproximación)
+  const BAR_RADIUS = 0.014; // barra olímpica de 28 mm
+  const KNEE_CLEAR = KNEE_FRONT + BAR_RADIUS; // distancia mínima centro de barra - centro de rodilla en el plano sagital
 
   class Infeasible extends Error {}
 
@@ -69,18 +72,19 @@
 
   // ---------------------------------------------------------------- técnicas (calibradas con literatura; ver README)
   const BASE = { calibrated: false, source: "", ranges: {}, at_bound: [], lam: 1.0, d: 0.06, shank_top_deg: 3.0, shank_max_deg: 35.0,
-    depth_deg: 5.0, bar_x_mode: "midfoot", trunk_top_deg: 0.0, bar_x_offset: 0.0, f_h0: 0.55, eps0: 0.05, eps_top: -0.03, p: 1.0, plate_radius: 0.225, stance: "frac" };
+    depth_deg: 5.0, bar_x_mode: "midfoot", trunk_top_deg: 0.0, bar_x_offset: 0.0, f_h0: 0.55, eps0: 0.05, eps_top: -0.03, p: 1.0, plate_radius: 0.225, stance: "frac",
+    toe_out_deg: 0, knee_out_deg: 0, grip_inside: false };
   function T(o) { return Object.assign({}, BASE, o); }
   const TECHNIQUES = {
-    sentadilla_barra_alta: T({ name: "Sentadilla barra alta", exercise: "squat", w_frac: 48.3 / 180.3, toe_out_deg: 0, stance: "shoulder", calibrated: true,
+    sentadilla_barra_alta: T({ name: "Sentadilla barra alta", exercise: "squat", w_frac: 48.3 / 180.3, toe_out_deg: 0, knee_out_deg: 12, stance: "shoulder", calibrated: true,
       lam: 1.0, d: 0.06, shank_max_deg: 32.8, depth_deg: -1.9, bar_x_offset: 0.040 }),
-    sentadilla_barra_baja: T({ name: "Sentadilla barra baja", exercise: "squat", w_frac: 89.6 / 180.3, toe_out_deg: 0, stance: "shoulder", calibrated: true,
+    sentadilla_barra_baja: T({ name: "Sentadilla barra baja", exercise: "squat", w_frac: 89.6 / 180.3, toe_out_deg: 0, knee_out_deg: 12, stance: "shoulder", calibrated: true,
       lam: 0.93, d: 0.07, shank_max_deg: 20.8, depth_deg: 2.7, bar_x_offset: -0.021 }),
-    sentadilla_frontal: T({ name: "Sentadilla frontal", exercise: "squat", w_frac: 0.30, toe_out_deg: 0, stance: "shoulder", calibrated: false,
+    sentadilla_frontal: T({ name: "Sentadilla frontal", exercise: "squat", w_frac: 0.30, toe_out_deg: 0, knee_out_deg: 12, stance: "shoulder", calibrated: false,
       lam: 1.0, d: -0.05, shank_max_deg: 40, depth_deg: 5, bar_x_offset: 0.0 }),
-    peso_muerto_convencional: T({ name: "Peso muerto convencional", exercise: "deadlift", w_frac: 37 / 167, toe_out_deg: 0, stance: "shoulder", calibrated: true,
+    peso_muerto_convencional: T({ name: "Peso muerto convencional", exercise: "deadlift", w_frac: 37 / 167, toe_out_deg: 15, knee_out_deg: 15, stance: "shoulder", calibrated: true,
       f_h0: 0.814, eps0: 0.12, eps_top: 0.02, p: 1.6, bar_x_offset: -0.0315 }),
-    peso_muerto_sumo: T({ name: "Peso muerto sumo", exercise: "deadlift", w_frac: 73 / 168, toe_out_deg: 25, calibrated: true,
+    peso_muerto_sumo: T({ name: "Peso muerto sumo", exercise: "deadlift", w_frac: 73 / 168, toe_out_deg: 45, knee_out_deg: 30, grip_inside: true, calibrated: true,
       f_h0: 0.762, eps0: 0.12, eps_top: 0.02, p: 1.6, bar_x_offset: -0.075 }),
   };
 
@@ -94,14 +98,23 @@
     return Math.max((w - a.b) / 2, 0);
   }
 
-  function twoLink(ax, ay, hx, hy, L1, L2) {
-    const dx = hx - ax, dy = hy - ay, d = Math.hypot(dx, dy);
-    if (d > L1 + L2 + 1e-9 || d < Math.abs(L1 - L2) - 1e-9) throw new Infeasible("cadera fuera del alcance de la pierna");
-    const aa = (L1 * L1 - L2 * L2 + d * d) / (2 * d);
-    const h = csqrt(L1 * L1 - aa * aa);
-    const ex = dx / d, ey = dy / d;
-    const c1 = [ax + aa * ex - h * ey, ay + aa * ey + h * ex], c2 = [ax + aa * ex + h * ey, ay + aa * ey - h * ex];
-    return c1[0] >= c2[0] ? c1 : c2;
+  /** Rodilla de la pierna derecha para un tobillo y una cadera 3D, puntos [x adelante, y arriba, z lateral hacia afuera].
+   * Las longitudes de tibia y muslo fijan una circunferencia de posiciones posibles alrededor del eje tobillo-cadera. La rodilla se
+   * abre en el plano que contiene ese eje y la dirección horizontal (cos th, 0, sin th), con th = outDeg hacia afuera: la rodilla
+   * sigue la dirección del pie. Con th = 0 es el plano que contiene al eje x (el modelo plano original). Espejo de model._knee_3d. */
+  function knee3d(a, A, H, outDeg) {
+    const d = [H[0] - A[0], H[1] - A[1], H[2] - A[2]];
+    const D = Math.hypot(d[0], d[1], d[2]);
+    if (D > a.Ls + a.Lt + 1e-9 || D < Math.abs(a.Ls - a.Lt) - 1e-9) throw new Infeasible("cadera fuera del alcance de la pierna");
+    const w = [d[0] / D, d[1] / D, d[2] / D];
+    const aa = (a.Ls * a.Ls - a.Lt * a.Lt + D * D) / (2 * D);
+    const h = csqrt(a.Ls * a.Ls - aa * aa);
+    const th = outDeg * Math.PI / 180, u = [Math.cos(th), 0, Math.sin(th)];
+    const pr = u[0] * w[0] + u[1] * w[1] + u[2] * w[2];
+    let n = [u[0] - pr * w[0], u[1] - pr * w[1], u[2] - pr * w[2]];
+    const nn = Math.hypot(n[0], n[1], n[2]);
+    n = nn > 1e-9 ? [n[0] / nn, n[1] / nn, n[2] / nn] : [1, 0, 0];
+    return [A[0] + aa * w[0] + h * n[0], A[1] + aa * w[1] + h * n[1], A[2] + aa * w[2] + h * n[2]];
   }
 
   function momentsOf(a, mb, psi, xa, xk, xh, shoulder, phi, barX, armsX, toeOut) {
@@ -139,12 +152,12 @@
     return { total, bar: pb, body: pd, arms, cop, copIn: cop >= -half && cop <= half, half };
   }
 
-  function pack(a, t, s, mb, ankle, knee, hip, shoulder, barXY, psi, phi, barX, armsX) {
+  function pack(a, t, s, mb, ankle, knee, hip, shoulder, barXY, psi, phi, barX, armsX, lateral) {
     const m = momentsOf(a, mb, psi, ankle[0], knee[0], hip[0], shoulder, phi, barX, armsX, t.toe_out_deg);
     const legs = { tobillo: Math.abs(m.total.tobillo), rodilla: Math.abs(m.total.rodilla), cadera: Math.abs(m.total.cadera) };
     const tot = legs.tobillo + legs.rodilla + legs.cadera || 1;
     return {
-      s, joints: { tobillo: ankle, rodilla: knee, cadera: hip, hombro: shoulder }, bar: barXY,
+      s, joints: { tobillo: ankle, rodilla: knee, cadera: hip, hombro: shoulder }, lateral, bar: barXY,
       psi_deg: psi * 180 / Math.PI, trunk_deg: phi * 180 / Math.PI,
       moments: m.total, bar_moments: m.bar, body_moments: m.body, arms: m.arms,
       shares: { tobillo: legs.tobillo / tot, rodilla: legs.rodilla / tot, cadera: legs.cadera / tot },
@@ -169,10 +182,13 @@
     if (Math.abs(C) > R) throw new Infeasible("la barra no puede quedar sobre la vertical elegida con este tronco");
     const phi = Math.atan2(B, A) + Math.asin(C / R);
     const hip = [uH, ha + yp];
-    const knee = [uK, ha + vK * Math.cos(psi)];
+    const zH = a.b / 2, zA = zH + c;
+    // la cadera y el tobillo vienen del plano de la pierna; la rodilla se abre según t.knee_out_deg (ver knee3d)
+    const K = knee3d(a, [xa, ha, zA], [uH, hip[1], zH], t.knee_out_deg);
+    const knee = [K[0], K[1]];
     const shoulder = [uH + a.Ltr * Math.sin(phi), hip[1] + a.Ltr * Math.cos(phi)];
     const barXY = [uH + A * Math.sin(phi) - B * Math.cos(phi), hip[1] + A * Math.cos(phi) + B * Math.sin(phi)];
-    return pack(a, t, s, load, [xa, ha], knee, hip, shoulder, barXY, psi, phi, barXY[0], shoulder[0]);
+    return pack(a, t, s, load, [xa, ha], knee, hip, shoulder, barXY, psi, phi, barXY[0], shoulder[0], { tobillo: zA, rodilla: K[2], cadera: zH });
   }
 
   function solveDeadlift(a, t, load, s) {
@@ -186,20 +202,29 @@
     const yHTop = ha + ypTop;
     const yBTop = yHTop + a.Ltr - csqrt(a.La * a.La - t.eps_top * t.eps_top);
     const yB = t.plate_radius + s * (yBTop - t.plate_radius);
-    const xSh = xb + eps;
-    const ySh = yB + csqrt(a.La * a.La - eps * eps);
-    const yH = ha + yp;
-    const dy = ySh - yH;
-    if (dy < 0 || dy > a.Ltr + 1e-9) throw new Infeasible("el hombro no es alcanzable desde esa altura de cadera");
-    const xH = xSh - csqrt(a.Ltr * a.Ltr - dy * dy);
+    const yH = ha + yp, psi = Math.atan2(c, yp), zH = a.b / 2, zA = zH + c;
+    const xSh = xb + eps; // el hombro queda donde lo pone la ficha de técnica
+    // La barra no puede atravesar la rodilla: si su centro pasa a menos de KNEE_CLEAR del centro de la rodilla, la barra se adelanta
+    // lo justo respecto del cuerpo (hombro, cadera y rodilla no se mueven: los brazos se inclinan un poco hacia adelante). Con la
+    // rodilla abierta en la dirección del pie casi no actúa. Se itera porque la altura del hombro depende de la inclinación del brazo.
+    let xbe = xb, ySh = 0, dy = 0, xH = 0, K = null;
+    for (let it = 0; it < 12; it++) {
+      const e = xSh - xbe;
+      ySh = yB + csqrt(a.La * a.La - e * e);
+      dy = ySh - yH;
+      if (dy < 0 || dy > a.Ltr + 1e-9) throw new Infeasible("el hombro no es alcanzable desde esa altura de cadera");
+      xH = xSh - csqrt(a.Ltr * a.Ltr - dy * dy);
+      K = knee3d(a, [xa, ha, zA], [xH, yH, zH], t.knee_out_deg);
+      const dyk = Math.abs(yB - K[1]);
+      const need = dyk < KNEE_CLEAR ? K[0] + Math.sqrt(KNEE_CLEAR * KNEE_CLEAR - dyk * dyk) : -Infinity;
+      if (need <= xbe + 1e-7) break;
+      xbe = need;
+    }
     const phi = Math.atan2(xSh - xH, dy);
-    const psi = Math.atan2(c, yp);
-    const vH = Math.hypot(yp, c);
-    const [ku, kv] = twoLink(xa, 0, xH, vH, a.Ls, a.Lt);
-    const hip = [xH, yH], knee = [ku, ha + kv * Math.cos(psi)], shoulder = [xSh, ySh];
+    const hip = [xH, yH], knee = [K[0], K[1]], shoulder = [xSh, ySh];
     const fArm = massPoints(a).f_arm_com;
-    const armsX = xSh + fArm * (xb - xSh);
-    return pack(a, t, s, load, [xa, ha], knee, hip, shoulder, [xb, yB], psi, phi, xb, armsX);
+    const armsX = xSh + fArm * (xbe - xSh);
+    return pack(a, t, s, load, [xa, ha], knee, hip, shoulder, [xbe, yB], psi, phi, xbe, armsX, { tobillo: zA, rodilla: K[2], cadera: zH });
   }
 
   function solve(a, t, load, s) { return (t.exercise === "squat" ? solveSquat : solveDeadlift)(a, t, load, s); }
@@ -287,6 +312,6 @@
     return out;
   }
 
-  const api = { G, Infeasible, DE_LEVA, DEFAULT_HIP_AP_OFFSET, TECHNIQUES, TOL, JOINTS, fromRaw, closureChecks, massPoints, solve, perturbedSet, band, pairedDiff };
+  const api = { G, Infeasible, DE_LEVA, DEFAULT_HIP_AP_OFFSET, KNEE_CLEAR, TECHNIQUES, TOL, JOINTS, fromRaw, closureChecks, massPoints, solve, perturbedSet, band, pairedDiff };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Palancas = api;
 })(typeof self !== "undefined" ? self : this);

@@ -269,7 +269,7 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
 
   let S = {
     step: 0, tech: "peso_muerto_sumo", load: 150, sex: "M", mass: "", H: "", m: {}, controls: false,
-    s: 0, compare: "", perKg: false, tab: "res", wi: {}, legView: "real", plane: "sag", explain: false,
+    s: 0, compare: "", perKg: false, tab: "res", wi: {}, legView: "lat", plane: "sag", explain: false,
   };
   const ctx = {}; // datos calculados en la pantalla de resultados
 
@@ -602,30 +602,37 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
   }
 
   // --- dibujo de la figura
-  // Con postura ancha las piernas yacen en un plano inclinado (psi) respecto al plano sagital: en una vista lateral pura la tibia y
-  // el muslo se ven más cortos (por cos psi). «Piernas a longitud real» abre ese plano sobre el sagital: la rodilla y la cadera se dibujan
-  // a su altura dentro del plano de la pierna (x no cambia, así que los brazos de palanca son los mismos) y todo lo que va sobre la
-  // cadera (tronco, cabeza, brazos, barra) se sube lo mismo. Solo cambia el dibujo; el cálculo de momentos no se toca.
+  // Con postura ancha las piernas se abren hacia los lados: en una vista lateral pura la tibia y el muslo se ven más cortos.
+  // «Piernas reales» gira cada punto de la pierna alrededor del eje antero-posterior que pasa por el tobillo hasta ponerlo en el
+  // plano sagital: la x no cambia (los brazos de palanca son los mismos) y la tibia queda a su longitud real. La cadera sube a su
+  // altura dentro del plano de la pierna, y todo lo que va sobre ella (tronco, cabeza, brazos, barra) se sube lo mismo. Como la
+  // rodilla puede abrirse fuera del plano tobillo-cadera (sigue la dirección del pie), el muslo no siempre queda a su longitud real.
+  // Solo cambia el dibujo; el cálculo de momentos no se toca.
   function unfold(q, force) {
     if (!force && S.legView !== "real") return q;
-    const ha = ctx.a.ha, cp = Math.cos(q.psi_deg * Math.PI / 180), j = q.joints;
+    const ha = ctx.a.ha, cp = Math.cos(q.psi_deg * Math.PI / 180), j = q.joints, z = q.lateral;
     const dy = (j.cadera[1] - ha) / cp - (j.cadera[1] - ha);
     const up = (p) => [p[0], p[1] + dy];
+    const kneeY = ha + Math.hypot(z.tobillo - z.rodilla, j.rodilla[1] - ha);
     return Object.assign({}, q, {
-      joints: { tobillo: j.tobillo, rodilla: [j.rodilla[0], ha + (j.rodilla[1] - ha) / cp], cadera: up(j.cadera), hombro: up(j.hombro) },
+      joints: { tobillo: j.tobillo, rodilla: [j.rodilla[0], kneeY], cadera: up(j.cadera), hombro: up(j.hombro) },
       bar: up(q.bar), unfold_dy: dy,
     });
   }
   function figNote(r0) {
     const a = ctx.a, j = r0.joints, d = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
-    const tib = d(j.tobillo, j.rodilla) / a.Ls * 100, mus = d(j.rodilla, j.cadera) / a.Lt * 100;
-    const dy = unfold(r0, true).unfold_dy * 100;
-    if (r0.psi_deg < 5) return "Postura estrecha: las piernas casi no se inclinan y la vista lateral las muestra a su longitud.";
     if (S.legView === "real") {
-      return "Piernas dibujadas a su longitud real. Por la separación lateral de los pies, el plano de las piernas está inclinado " + nf(r0.psi_deg, 0) + "° respecto al plano lateral. " +
-        (dy >= 1 ? "Por eso la cadera y la barra se dibujan " + nf(dy, 0) + " cm más arriba que su altura real (cadera real: " + nf(r0.joints.cadera[1] * 100, 0) + " cm). " : "") + "Los brazos de palanca (medidas horizontales) no cambian.";
+      const u = unfold(r0, true), uj = u.joints;
+      const tib = d(uj.tobillo, uj.rodilla) / a.Ls * 100, mus = d(uj.rodilla, uj.cadera) / a.Lt * 100;
+      const lift = u.unfold_dy * 100;
+      return "Piernas desplegadas sobre el plano lateral: la tibia se ve al " + nf(tib, 0) + " % y el muslo al " + nf(mus, 0) + " % de su longitud real" +
+        (mus < 97 ? " (la rodilla se abre hacia afuera siguiendo el pie, por eso el muslo se ve algo más corto)" : "") + ". " +
+        (lift >= 1 ? "La cadera y la barra se dibujan " + nf(lift, 0) + " cm más arriba que su altura real (cadera real: " + nf(r0.joints.cadera[1] * 100, 0) + " cm). " : "") +
+        "Los brazos de palanca (medidas horizontales) no cambian. En esta vista la altura relativa entre la barra y la rodilla se deforma: la distancia barra-rodilla solo es exacta en la vista lateral.";
     }
-    return "Vista lateral real: las piernas, inclinadas " + nf(r0.psi_deg, 0) + "° por la separación de los pies, se ven más cortas (tibia al " + nf(tib, 0) + " %, muslo al " + nf(mus, 0) + " % de su longitud). Es un efecto de la vista, no de las medidas.";
+    if (r0.psi_deg < 5) return "Postura estrecha: las piernas casi no se inclinan y la vista lateral las muestra a su longitud.";
+    const tib = d(j.tobillo, j.rodilla) / a.Ls * 100, mus = d(j.rodilla, j.cadera) / a.Lt * 100;
+    return "Vista lateral real: las piernas, abiertas por la separación de los pies y la dirección de las rodillas, se ven más cortas (tibia al " + nf(tib, 0) + " %, muslo al " + nf(mus, 0) + " % de su longitud). Es un efecto de la vista, no de las medidas.";
   }
   function drawFigure(r, rB, opt) {
     const plateY = r.bar[1]; // el disco real apoya en el suelo (peso muerto); en sentadilla acompaña a la barra dibujada
@@ -699,34 +706,32 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
   }
 
   // --- vista frontal (esquemática, solo forma: no calcula momentos)
-  // Usa lo que el modelo ya tiene: ancho de caderas (a.b), separación de tobillos (se deduce de la inclinación psi de la pierna),
-  // ancho de hombros, alturas de rodilla, cadera, hombro y barra. El modelo pone la rodilla en la recta tobillo-cadera, lo que en
-  // pantalla se vería como rodillas más juntas que los pies (parece valgo). Aquí se dibujan las rodillas sobre los pies, que es la
-  // referencia de «buen alineamiento»: es una convención de dibujo, el cálculo de momentos no se toca. Barra y discos van
-  // esquematizados (la barra real mide 2,2 m) y los brazos cuelgan verticales desde los hombros.
+  // Usa las coordenadas del modelo: separación lateral de tobillos, rodillas y caderas (r.lateral), ancho de hombros y las alturas
+  // de cada punto. La rodilla sigue la dirección que fija la técnica (knee_out_deg): por eso se mueve hacia el plano medio al
+  // extenderse la pierna. Barra y discos van esquematizados (la barra real mide 2,2 m) y los brazos cuelgan verticales desde los hombros.
   const FRONT = { HW: 0.72, barHalf: 0.66, plateIn: 0.56, plateOut: 0.62, footW: 0.10, handOut: 0.035 };
   const SAG_HELP = "Los círculos azules marcan tobillo, rodilla y centro estimado de la cadera: más oscuro, mayor momento. Las líneas horizontales con medida son los brazos de palanca de la barra. El punto pequeño en la cadera es el trocánter. Línea punteada naranja: postura comparada.";
-  const FRONT_HELP = "Vista de frente con las medidas del atleta: separación de los pies, ancho de caderas y de hombros, y la altura de cada punto según el recorrido. Es un dibujo para explicar la postura; no mide ni evalúa la técnica real. Línea punteada naranja: postura comparada.";
+  const FRONT_HELP = "Vista de frente con las medidas del atleta: separación de los pies, ancho de caderas y de hombros, y la posición de la rodilla en cada punto del recorrido. Es un dibujo para explicar la postura; no mide ni evalúa la técnica real. Línea punteada naranja: postura comparada.";
   function drawFront(r, rB) {
     const a = ctx.a, YT = ctx.view.YT, F = FRONT;
     const X = (l) => Math.round((l + F.HW) * 1000), Y = (y) => Math.round((YT - y) * 1000);
     const sh2 = a.shoulder_w / 2, dl = ctx.t.exercise === "deadlift";
     const poly = (p, cls, st) => '<polyline class="' + cls + '"' + (st ? ' style="' + st + '"' : "") + ' points="' + p.map((q) => X(q[0]) + "," + Y(q[1])).join(" ") + '"/>';
     const geom = (q) => {
-      const j = q.joints, ha = j.tobillo[1], tn = Math.tan(q.psi_deg * Math.PI / 180);
-      // mitad de la separación de tobillos = mitad de caderas + (altura de cadera sobre el tobillo) * tan(psi)
-      return { ha, hipL: a.b / 2, ankL: a.b / 2 + (j.cadera[1] - ha) * tn, kY: j.rodilla[1], hY: j.cadera[1], sY: j.hombro[1], bY: q.bar[1], hx: j.cadera[0], sx: j.hombro[0] };
+      const j = q.joints, z = q.lateral;
+      return { ha: j.tobillo[1], hipL: z.cadera, ankL: z.tobillo, kneeL: z.rodilla, kY: j.rodilla[1], hY: j.cadera[1], sY: j.hombro[1], bY: q.bar[1], hx: j.cadera[0], sx: j.hombro[0] };
     };
     const body = (q, tech, cls, isB) => {
-      const g = geom(q), sumo = tech.toe_out_deg > 10;
+      const g = geom(q), inside = tech.grip_inside;
       const trunkL = Math.hypot(g.sx - g.hx, g.sY - g.hY) || 1;
       let headY = g.sY + 0.11 * (g.sY - g.hY) / trunkL;
+      headY = Math.max(headY, g.sY + 0.09); // con el tronco casi horizontal la cabeza se vería encima de la línea de hombros
       if (!dl) headY = Math.max(headY, g.bY + 0.10); // sentadilla: la barra va en la base del cuello, la cabeza queda por encima
       const toe = tech.toe_out_deg * Math.PI / 180, fw = (F.footW * Math.cos(toe) + a.Lf * Math.sin(toe)) / 2;
-      const hand = sumo ? sh2 : sh2 + F.handOut; // sumo: agarre por dentro de las piernas; convencional: por fuera de las rodillas
+      const hand = inside ? sh2 : sh2 + F.handOut; // sumo: agarre por dentro de las piernas; convencional: por fuera de las rodillas
       let o = "";
       [-1, 1].forEach((sg) => {
-        o += poly([[sg * g.ankL, g.ha], [sg * g.ankL, g.kY], [sg * g.hipL, g.hY]], cls);
+        o += poly([[sg * g.ankL, g.ha], [sg * g.kneeL, g.kY], [sg * g.hipL, g.hY]], cls);
         o += poly([[sg * (g.ankL - fw), 0], [sg * (g.ankL + fw), 0]], cls, isB ? "" : "stroke-width:14");
         if (dl) o += poly([[sg * sh2, g.sY], [sg * hand, g.bY]], cls);
       });
@@ -747,8 +752,8 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
     g += body(r, ctx.t, "seg-a", false);
     // articulaciones (sin color por demanda: esta vista no calcula momentos)
     [-1, 1].forEach((sg) => {
-      [[A.ankL, A.ha], [A.ankL, A.kY], [A.hipL, A.hY]].forEach((p) => { g += '<circle class="jt" cx="' + X(sg * p[0]) + '" cy="' + Y(p[1]) + '" r="26" fill-opacity="0.4"/>'; });
-      if (dl) g += '<circle cx="' + X(sg * (ctx.t.toe_out_deg > 10 ? sh2 : sh2 + F.handOut)) + '" cy="' + bY + '" r="20" fill="var(--ink)"/>';
+      [[A.ankL, A.ha], [A.kneeL, A.kY], [A.hipL, A.hY]].forEach((p) => { g += '<circle class="jt" cx="' + X(sg * p[0]) + '" cy="' + Y(p[1]) + '" r="26" fill-opacity="0.4"/>'; });
+      if (dl) g += '<circle cx="' + X(sg * (ctx.t.grip_inside ? sh2 : sh2 + F.handOut)) + '" cy="' + bY + '" r="20" fill="var(--ink)"/>';
     });
     // medida: separación de tobillos
     const yd = Y(0.07), x1 = X(-A.ankL), x2 = X(A.ankL);
@@ -759,11 +764,12 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
     return g;
   }
   function frontNote(r) {
-    const j = r.joints, tn = Math.tan(r.psi_deg * Math.PI / 180), a = ctx.a;
-    const ank = (a.b / 2 + (j.cadera[1] - j.tobillo[1]) * tn) * 200;
-    const dl = ctx.t.exercise === "deadlift", sumo = ctx.t.toe_out_deg > 10;
-    return "Vista frontal esquemática: pies separados " + nf(ank, 0) + " cm, caderas " + nf(a.b * 100, 0) + " cm y hombros " + nf(a.shoulder_w * 100, 0) + " cm (medidas del atleta). " +
-      "Las rodillas se dibujan sobre los pies y los brazos cuelgan verticales" + (dl ? (sumo ? ", por dentro de las piernas (sumo)" : ", por fuera de las rodillas (convencional)") : "") + ". Barra y discos no están a escala.";
+    const a = ctx.a, t = ctx.t, z = r.lateral, dl = t.exercise === "deadlift";
+    const kneeIn = (z.tobillo - z.rodilla) * 100;
+    return "Vista frontal esquemática: pies separados " + nf(z.tobillo * 200, 0) + " cm" + (t.toe_out_deg > 0 ? " y abiertos " + nf(t.toe_out_deg, 0) + "°" : ", con los pies rectos") +
+      ", caderas " + nf(a.b * 100, 0) + " cm y hombros " + nf(a.shoulder_w * 100, 0) + " cm (medidas del atleta). La rodilla sigue la dirección del pie" +
+      (kneeIn >= 1 ? " y queda " + nf(kneeIn, 0) + " cm por dentro de él en este punto" : "") +
+      (dl ? "; los brazos cuelgan verticales, " + (t.grip_inside ? "por dentro de las piernas (sumo)" : "por fuera de las rodillas (convencional)") : "") + ". Barra y discos no están a escala.";
   }
 
   function niceTicks(lo, hi, n) {
