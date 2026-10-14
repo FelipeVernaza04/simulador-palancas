@@ -1,0 +1,974 @@
+<title>Simulador de palancas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Concepto: herramienta de taller para entrenadores. Flujo de 4 pasos con una cinta métrica amarilla como indicador de avance;
+   la figura de palitos muestra el brazo de palanca de la barra en cada articulación. Demanda en una sola gama (azul),
+   sin verde/rojo de "bueno/malo". */
+:root {
+  --bg: #F1F3F4; --surface: #FFFFFF; --surface-2: #E8ECEE; --ink: #14202B; --muted: #55656F; --line: #D3DAE0;
+  --accent: #F5C400; --on-accent: #1A1500;
+  --demand: #1F6F8B; --demand-soft: #CFE3EA; --alt: #B4561F;
+  --c-tob: #8A5A9E; --c-rod: #2A7F9E; --c-cad: #B4561F; --c-lum: #587D2B;
+  --warn-bg: #FFF3CF; --warn-ink: #4A3A00; --bad-bg: #FBE3DE; --bad-ink: #6B1D10;
+  --f-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0F161C; --surface: #17212A; --surface-2: #1F2C36; --ink: #E8EEF2; --muted: #9AABB8; --line: #2B3A46;
+  --demand: #4DB3D4; --demand-soft: #1D3A47; --alt: #F08A4B;
+  --c-tob: #B98FD0; --c-rod: #5BB8D9; --c-cad: #F08A4B; --c-lum: #9CCB5E;
+  --warn-bg: #3A3010; --warn-ink: #F3DF9A; --bad-bg: #3F1D17; --bad-ink: #F6C3B8; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0F161C; --surface: #17212A; --surface-2: #1F2C36; --ink: #E8EEF2; --muted: #9AABB8; --line: #2B3A46;
+  --demand: #4DB3D4; --demand-soft: #1D3A47; --alt: #F08A4B;
+  --c-tob: #B98FD0; --c-rod: #5BB8D9; --c-cad: #F08A4B; --c-lum: #9CCB5E;
+  --warn-bg: #3A3010; --warn-ink: #F3DF9A; --bad-bg: #3F1D17; --bad-ink: #F6C3B8; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+html, body { min-height: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 16px; line-height: 1.45;
+  padding-inline: 16px; padding-block: 0 96px; -webkit-text-size-adjust: 100%; }
+.wrap { max-width: 980px; margin-inline: auto; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h2 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.01em; }
+h3 { font-size: 1.05rem; font-weight: 700; }
+p { margin: 0; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.small { font-size: 0.875rem; }
+.eyebrow { font-family: var(--f-mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+/* barra superior con cinta métrica */
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-block: 12px 8px; margin-inline: -16px; padding-inline: 16px; }
+.top-in { max-width: 980px; margin-inline: auto; }
+.brand { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.brand b { font-family: var(--f-display); font-weight: 800; font-size: 1.05rem; letter-spacing: -0.01em; }
+.tape { position: relative; height: 14px; margin-block: 8px 6px; border-radius: 2px; overflow: hidden;
+  background-color: var(--accent);
+  background-image:
+    repeating-linear-gradient(90deg, var(--on-accent) 0 1px, transparent 1px 6px),
+    repeating-linear-gradient(90deg, var(--on-accent) 0 1.5px, transparent 1.5px 30px);
+  background-size: 100% 40%, 100% 70%; background-repeat: no-repeat; background-position: bottom left, bottom left; }
+.tape i { position: absolute; top: 0; bottom: 0; right: 0; background: var(--bg); opacity: 0.78; transition: width .25s ease; }
+.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.steps button { background: none; border: 0; padding: 8px 2px; text-align: left; font-family: var(--f-mono); font-size: 0.75rem; color: var(--muted); letter-spacing: 0.02em; }
+.steps button[aria-current="step"] { color: var(--ink); font-weight: 500; }
+.steps button:disabled { opacity: 0.45; cursor: default; }
+
+main { padding-block: 16px 24px; display: grid; gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.lead { color: var(--muted); max-width: 60ch; }
+
+/* paso 1: técnicas */
+.group-title { font-family: var(--f-mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
+.techs { display: grid; gap: 8px; }
+.tech { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-items: start; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); cursor: pointer; }
+.tech:has(input:checked) { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); background: var(--surface-2); }
+.tech input { margin-top: 3px; accent-color: var(--ink); width: 18px; height: 18px; }
+.tech .t-name { font-weight: 600; }
+.tech .t-desc { grid-column: 2; color: var(--muted); font-size: 0.875rem; }
+.badge { display: inline-block; font-family: var(--f-mono); font-size: 0.6875rem; padding: 2px 6px; border-radius: 3px; margin-left: 8px; vertical-align: 1px; letter-spacing: 0.02em; }
+.badge.ok { background: var(--demand-soft); color: var(--ink); }
+.badge.warn { background: var(--warn-bg); color: var(--warn-ink); }
+
+/* formularios */
+.field { display: grid; gap: 6px; }
+.field > label, .field > .lbl { font-weight: 600; }
+.help { color: var(--muted); font-size: 0.875rem; max-width: 58ch; }
+.inp { display: flex; align-items: stretch; max-width: 220px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); overflow: hidden; }
+.inp:focus-within { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.inp input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 12px; font-family: var(--f-mono); font-size: 1.125rem; font-variant-numeric: tabular-nums; outline: none; }
+.inp .u { padding: 12px 12px 12px 0; color: var(--muted); font-family: var(--f-mono); align-self: center; }
+.inp button { border: 0; background: var(--surface-2); width: 44px; font-size: 1.25rem; }
+.hint { font-size: 0.8125rem; min-height: 1.1em; color: var(--muted); }
+.hint.warn { color: var(--warn-ink); background: var(--warn-bg); padding: 2px 6px; border-radius: 3px; width: fit-content; }
+.seg { display: inline-grid; grid-auto-flow: column; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; width: fit-content; }
+.seg label { padding: 12px 20px; cursor: pointer; background: var(--surface); }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg label:has(input:checked) { background: var(--ink); color: var(--bg); }
+.seg label:has(input:focus-visible) { outline: 3px solid var(--ink); outline-offset: 2px; }
+.grid2 { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.mfield { display: grid; gap: 6px; padding-block: 12px; border-top: 1px solid var(--line); }
+.mfield:first-of-type { border-top: 0; padding-top: 0; }
+.mname { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.mname .sym { font-family: var(--f-mono); font-size: 0.75rem; color: var(--muted); }
+.toggle { display: flex; gap: 10px; align-items: center; }
+.toggle input { width: 20px; height: 20px; accent-color: var(--ink); }
+.note { padding: 10px 12px; border-radius: 8px; background: var(--surface-2); font-size: 0.9rem; }
+.note.warn { background: var(--warn-bg); color: var(--warn-ink); }
+.note.bad { background: var(--bad-bg); color: var(--bad-ink); }
+.linkbtn { background: none; border: 0; padding: 0; text-decoration: underline; text-underline-offset: 3px; color: var(--ink); }
+.btn { border: 1px solid var(--ink); background: var(--surface); border-radius: 8px; padding: 12px 18px; font-weight: 600; min-height: 48px; }
+.btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--on-accent); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* barra de navegación inferior */
+.nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: var(--bg); border-top: 1px solid var(--line);
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px)); }
+.nav-in { max-width: 980px; margin-inline: auto; display: flex; gap: 12px; justify-content: space-between; align-items: center; }
+.nav .btn { min-width: 120px; }
+
+/* resultados */
+.res { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 820px) { .res { grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); align-items: start; } .fig-card { position: sticky; top: 120px; } }
+.fig-card { padding: 12px; }
+.fig { display: block; width: 100%; height: min(56vh, 520px); }
+.fig text { font-family: var(--f-mono); font-size: 40px; fill: var(--ink); paint-order: stroke; stroke: var(--surface); stroke-width: 10px; stroke-linejoin: round; }
+.fig .dim { stroke: var(--ink); stroke-width: 5; }
+.fig .plumb { stroke: var(--ink); stroke-width: 4; stroke-dasharray: 18 14; opacity: 0.8; }
+.fig .seg-a { stroke: var(--ink); stroke-width: 26; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+.fig .seg-b { stroke: var(--alt); stroke-width: 12; stroke-linecap: round; stroke-linejoin: round; fill: none; stroke-dasharray: 24 18; }
+.fig .floor { stroke: var(--muted); stroke-width: 6; }
+.fig .plate { fill: var(--surface-2); stroke: var(--muted); stroke-width: 4; }
+.fig .jt { stroke: var(--surface); stroke-width: 6; fill: var(--demand); }
+.fig .lab { fill: var(--muted); font-size: 34px; }
+.sl { display: grid; gap: 6px; }
+.sl input[type=range] { width: 100%; height: 44px; accent-color: var(--ink); background: none; }
+.sl-ends { display: flex; justify-content: space-between; font-family: var(--f-mono); font-size: 0.75rem; color: var(--muted); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+.stat { background: var(--surface-2); border-radius: 8px; padding: 8px 10px; }
+.stat b { display: block; font-family: var(--f-mono); font-weight: 500; font-size: 1rem; overflow-wrap: anywhere; }
+.stat span { font-size: 0.75rem; color: var(--muted); }
+.cmp { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.cmp select { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); max-width: 100%; }
+.unit-tog { display: inline-grid; grid-auto-flow: column; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.unit-tog button { border: 0; background: var(--surface); padding: 8px 12px; font-family: var(--f-mono); font-size: 0.8125rem; }
+.unit-tog button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.hdr-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.brow { display: grid; gap: 4px; padding-block: 8px; border-top: 1px solid var(--line); }
+.brow:first-of-type { border-top: 0; }
+.bl { display: flex; gap: 4px 10px; flex-wrap: wrap; align-items: baseline; }
+.bl .bv { margin-left: auto; text-align: right; }
+.bl b { font-weight: 600; }
+.bv { font-family: var(--f-mono); font-variant-numeric: tabular-nums; font-size: 0.875rem; }
+.bv small { color: var(--muted); font-size: 0.75rem; }
+.track { position: relative; height: 26px; }
+.track .zero { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--ink); opacity: 0.55; }
+.track .bar { position: absolute; top: 4px; height: 8px; background: var(--demand); border-radius: 1px; }
+.track .bar.b { top: 15px; background: none; border: 2px solid var(--alt); height: 8px; }
+.track .wh { position: absolute; height: 2px; background: var(--ink); opacity: .7; }
+.track .wh.t1 { top: 7px; } .track .wh.t2 { top: 18px; }
+.track .cap { position: absolute; width: 2px; height: 10px; background: var(--ink); opacity: .7; }
+.track .cap.t1 { top: 3px; } .track .cap.t2 { top: 14px; }
+.axis { position: relative; height: 18px; border-top: 1px solid var(--line); margin-top: 4px; }
+.axis span { position: absolute; top: 2px; transform: translateX(-50%); font-family: var(--f-mono); font-size: 0.6875rem; color: var(--muted); }
+.axis-t { font-family: var(--f-mono); font-size: 0.6875rem; color: var(--muted); text-align: right; }
+.share { display: flex; height: 22px; border-radius: 4px; overflow: hidden; background: var(--surface-2); }
+.share span { display: block; height: 100%; }
+.share-leg { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.8125rem; font-family: var(--f-mono); }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; }
+.chart { width: 100%; height: auto; display: block; }
+.chart text { font-family: var(--f-mono); font-size: 13px; fill: var(--muted); }
+.chart .ln { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .cur { stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 4 4; }
+details summary { cursor: pointer; font-weight: 600; padding-block: 6px; }
+details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; color: var(--muted); font-size: 0.9rem; max-width: 64ch; }
+.diff { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.diff div { background: var(--surface-2); border-radius: 8px; padding: 8px 10px; font-size: 0.8125rem; }
+.diff b { display: block; font-family: var(--f-mono); font-size: 0.9375rem; font-weight: 500; }
+.tabs { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.tabs button { border: 0; padding: 12px 8px; font-weight: 600; background: var(--surface); min-height: 48px; }
+.tabs button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.wi-ctl { display: grid; gap: 4px; padding-block: 10px; border-top: 1px solid var(--line); }
+.wi-ctl:first-of-type { border-top: 0; }
+.wi-ctl input[type=range] { width: 100%; height: 40px; accent-color: var(--ink); background: none; }
+.wi-t { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.wi-t th { text-align: left; font-family: var(--f-mono); font-size: 0.6875rem; font-weight: 500; color: var(--muted); padding: 4px 6px 6px 0; letter-spacing: 0.02em; }
+.wi-t td { padding: 8px 6px 8px 0; border-top: 1px solid var(--line); font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.wi-t td:first-child { font-family: var(--f-body); font-weight: 600; }
+.cue { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 8px; background: var(--surface); }
+.cue p { margin: 0; font-size: 0.9375rem; }
+.cue .q { font-family: var(--f-display); font-weight: 700; font-size: 1.05rem; }
+/* modo explicar */
+.xp { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 820px) { .xp { grid-template-columns: minmax(340px, 1.15fr) minmax(0, 1fr); align-items: start; } .xfig { position: sticky; top: 120px; } }
+.fig.xf { height: min(50vh, 600px); }
+.fig.xf .dim { stroke-width: 9; }
+.fig.xf text { font-size: 50px; }
+.fig.xf .tagtxt { font-family: var(--f-display); font-weight: 800; font-size: 58px; }
+.moments { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.moments button { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 10px 6px; min-height: 52px; font-weight: 600; font-size: 0.875rem; line-height: 1.2; }
+.moments button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.xplay { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.xhl { font-family: var(--f-display); font-weight: 800; font-size: 1.45rem; line-height: 1.15; letter-spacing: -0.01em; text-wrap: balance; }
+.xidea { font-size: 1.15rem; line-height: 1.4; max-width: 46ch; }
+.zrow { display: grid; grid-template-columns: 9.5em 1fr; gap: 10px; align-items: center; padding-block: 6px; }
+.zrow .zn { font-weight: 500; }
+.zrow.top .zn { font-weight: 800; }
+.zb { display: block; height: 16px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
+.zb i { display: block; height: 100%; background: var(--demand); border-radius: 3px; }
+@media (max-width: 520px) { .brand .eyebrow { display: none; } }
+@media (prefers-reduced-motion: reduce) { .tape i { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header class="top"><div class="top-in">
+    <div class="brand"><b>Simulador de palancas</b><span class="eyebrow">sentadilla · peso muerto</span></div>
+    <div class="tape" aria-hidden="true"><i id="tape-rest"></i></div>
+    <nav class="steps" id="steps" aria-label="Pasos"></nav>
+  </div></header>
+  <main id="main"></main>
+</div>
+<div class="nav"><div class="nav-in">
+  <button class="btn" id="btn-back" type="button">Atrás</button>
+  <button class="btn primary" id="btn-next" type="button">Siguiente</button>
+</div></div>
+
+<script>
+/*MODEL*/
+</script>
+<script>
+(function () {
+  "use strict";
+  const P = Palancas;
+  const $ = (s, r) => (r || document).querySelector(s);
+  const $d = (s) => $(s) || document.createElement("div");
+  const nf = (v, d) => { if (!isFinite(v)) return "—"; if (Number(v.toFixed(d)) === 0) v = 0; return v.toLocaleString("es", { minimumFractionDigits: d, maximumFractionDigits: d }); };
+  const STORE = "palancas-v1";
+
+  const TECH_INFO = {
+    sentadilla_barra_alta: "Barra sobre el trapecio. Postura más estrecha y tronco más vertical.",
+    sentadilla_barra_baja: "Barra bajo el trapecio. Postura más ancha y más inclinación del tronco.",
+    sentadilla_frontal: "Barra apoyada por delante de los hombros. Valores ilustrativos, sin datos publicados para calibrar.",
+    peso_muerto_convencional: "Pies bajo las caderas, agarre por fuera de las piernas.",
+    peso_muerto_sumo: "Postura ancha, agarre por dentro de las piernas, barra más cerca del cuerpo.",
+  };
+  const GROUPS = [["Sentadilla", ["sentadilla_barra_alta", "sentadilla_barra_baja", "sentadilla_frontal"]],
+                  ["Peso muerto", ["peso_muerto_convencional", "peso_muerto_sumo"]]];
+
+  // medidas: clave -> [nombre, símbolo, ayuda, rango plausible (cm), grupo, solo peso muerto, control, opcional]
+  const MEAS = {
+    Lt: ["Muslo", "Lt", "Del trocánter mayor al epicóndilo lateral del fémur. El trocánter se palpa en el costado de la cadera y se mueve al rotar el muslo.", [30, 55], "Pierna"],
+    Ls: ["Pierna", "Ls", "Del epicóndilo lateral a la punta del maléolo lateral, el hueso externo del tobillo.", [30, 55], "Pierna"],
+    ha: ["Altura del maléolo", "ha", "Del suelo a la punta del maléolo lateral.", [4, 12], "Pierna"],
+    Lf: ["Longitud del pie", "Lf", "Talón contra la pared, hasta la punta del dedo más largo.", [20, 32], "Pie"],
+    dam: ["Talón al maléolo", "dam", "Talón contra la pared, escuadra apoyada en el borde del maléolo. Se lee la distancia horizontal.", [3, 9], "Pie"],
+    Ltr: ["Tronco", "Ltr", "Del trocánter al acromion, el borde lateral de la repisa ósea del hombro. Hombros relajados.", [40, 65], "Tronco y brazo"],
+    La: ["Brazo", "La", "Del acromion al centro del agarre, con la barra en la mano y el brazo colgando recto.", [45, 80], "Tronco y brazo", true],
+    Wa: ["Ancho de hombros", "Wa", "Entre los dos acromiones (el borde lateral de cada hombro), con la cinta recta por la espalda y los hombros relajados. Define la separación de los tobillos: bajo los hombros.", [30, 55], "Tronco y brazo"],
+    D: ["Distancia entre espinas ilíacas", "D", "Entre las dos puntas óseas del frente de la cadera, con la cinta recta. Opcional: si se omite se estima desde la estatura.", [18, 35], "Cadera", false, false, true],
+    h_troc: ["Altura del trocánter", "h_troc", "Del suelo a la punta superior del trocánter. Sirve para comprobar las medidas de pierna.", [70, 110], "Control", false, true],
+    h_acro: ["Altura del acromion", "h_acro", "Del suelo al acromion. Sirve para comprobar la medida del tronco.", [110, 170], "Control", false, true],
+  };
+  const SAMPLE = { sex: "M", mass: "80", H: "175", m: { Lt: "42", Ls: "43", ha: "7", Lf: "26", dam: "5", Ltr: "52", La: "62", Wa: "40", D: "25", h_troc: "92", h_acro: "144" } };
+
+  const WA_EST = 0.23; // estimación propia del ancho de hombros / estatura (sin fuente verificada); solo si no se mide
+  const JN = { tobillo: "Tobillo", rodilla: "Rodilla", cadera: "Cadera", lumbar: "Zona lumbar" };
+  const JCOL = { tobillo: "var(--c-tob)", rodilla: "var(--c-rod)", cadera: "var(--c-cad)", lumbar: "var(--c-lum)" };
+
+  let S = {
+    step: 0, tech: "peso_muerto_sumo", load: 150, sex: "M", mass: "", H: "", m: {}, controls: false,
+    s: 0, compare: "", perKg: false, tab: "res", wi: {}, legView: "real", explain: false,
+  };
+  const ctx = {}; // datos calculados en la pantalla de resultados
+
+  // ---------- persistencia ligera (solo comodidad)
+  function save() { try { localStorage.setItem(STORE, JSON.stringify({ tech: S.tech, load: S.load, sex: S.sex, mass: S.mass, H: S.H, m: S.m, controls: S.controls })); } catch (e) {} }
+  function restore() { try { const o = JSON.parse(localStorage.getItem(STORE) || "null"); if (o) Object.assign(S, o); } catch (e) {} }
+
+  // ---------- utilidades de datos
+  const num = (v) => { const x = parseFloat(String(v == null ? "" : v).replace(",", ".")); return isFinite(x) ? x : NaN; };
+  const exercise = () => P.TECHNIQUES[S.tech].exercise;
+  function neededKeys() {
+    const ks = ["Lt", "Ls", "ha", "Lf", "dam", "Ltr"];
+    if (exercise() === "deadlift") ks.push("La");
+    if (S.tech !== "peso_muerto_sumo") ks.push("Wa");
+    return ks;
+  }
+  function shownKeys() {
+    const ks = neededKeys().concat(S.tech === "peso_muerto_sumo" ? ["Wa", "D"] : ["D"]);
+    if (S.controls) ks.push("h_troc", "h_acro");
+    return ks;
+  }
+  function rangeHint(key, v) {
+    const r = MEAS[key][3];
+    if (!isFinite(v)) return "";
+    if (v < r[0] || v > r[1]) return "Fuera de lo habitual (" + r[0] + " a " + r[1] + " cm). Revisa la medida.";
+    if (key === "dam" && isFinite(num(S.m.Lf)) && v >= num(S.m.Lf)) return "Debe ser menor que la longitud del pie.";
+    return "";
+  }
+  function stepValid(i) {
+    if (i === 0) return isFinite(S.load) && S.load > 0;
+    if (i === 1) return isFinite(num(S.mass)) && num(S.mass) > 20 && isFinite(num(S.H)) && num(S.H) > 100;
+    if (i === 2) return neededKeys().every((k) => isFinite(num(S.m[k])) && num(S.m[k]) > 0) && !(isFinite(num(S.m.dam)) && num(S.m.dam) >= num(S.m.Lf));
+    return true;
+  }
+  function getRaw() {
+    const c = (k) => num(S.m[k]) / 100;
+    const H = num(S.H) / 100;
+    return {
+      sex: S.sex, mass: num(S.mass), H,
+      Lt_raw: c("Lt"), Ls_raw: c("Ls"), ha: c("ha"), Lf: c("Lf"), heel_to_malleolus: c("dam"), Ltr_raw: c("Ltr"),
+      La_raw: exercise() === "deadlift" ? c("La") : 0.60,
+      D_asis: isFinite(c("D")) && c("D") > 0 ? c("D") : 0.143 * H,
+      D_acro: isFinite(c("Wa")) && c("Wa") > 0 ? c("Wa") : WA_EST * H,
+      h_troc: isFinite(c("h_troc")) && S.controls ? c("h_troc") : null,
+      h_acro: isFinite(c("h_acro")) && S.controls ? c("h_acro") : null,
+    };
+  }
+
+  // ---------- pasos
+  const STEP_NAMES = ["Técnica", "Atleta", "Medidas", "Resultados"];
+  function renderSteps() {
+    $("#steps").innerHTML = STEP_NAMES.map((n, i) =>
+      '<button type="button" data-go="' + i + '"' + (i === S.step ? ' aria-current="step"' : "") + (i > S.step ? " disabled" : "") + ">" + n + "</button>").join("");
+    $("#tape-rest").style.width = (100 - ((S.step + 1) / 4) * 100) + "%";
+    $("#btn-back").style.visibility = S.step === 0 ? "hidden" : "visible";
+    const nx = $("#btn-next");
+    nx.textContent = S.step === 2 ? "Ver resultados" : S.step === 3 ? "Nuevo atleta" : "Siguiente";
+    nx.disabled = !stepValid(S.step);
+  }
+
+  function viewTech() {
+    const groups = GROUPS.map(([g, keys]) => '<div class="group-title">' + g + '</div><div class="techs">' + keys.map((k) => {
+      const t = P.TECHNIQUES[k];
+      const b = t.calibrated ? '<span class="badge ok">calibrada con literatura</span>' : '<span class="badge warn">ilustrativa</span>';
+      return '<label class="tech"><input type="radio" name="tech" value="' + k + '"' + (S.tech === k ? " checked" : "") + '>' +
+        '<span class="t-name">' + t.name + b + '</span><span class="t-desc">' + TECH_INFO[k] + "</span></label>";
+    }).join("") + "</div>").join("");
+    return '<section class="card"><div><h2>¿Qué técnica usa el atleta?</h2><p class="lead">El modelo usa los datos publicados de esa técnica para ubicar la barra y el cuerpo. No hace falta grabar ni subir video.</p></div>' +
+      groups +
+      '<div class="field"><label for="load">Carga total en la barra</label><div class="inp"><button type="button" data-load="-5" aria-label="Restar 5 kilos">−</button>' +
+      '<input id="load" inputmode="decimal" autocomplete="off" value="' + S.load + '"><span class="u">kg</span><button type="button" data-load="5" aria-label="Sumar 5 kilos">+</button></div>' +
+      '<div class="help">Barra, discos y collares. Para el cálculo se supone una carga estática y simétrica.</div></div></section>';
+  }
+
+  function viewAthlete() {
+    return '<section class="card"><div><h2>Datos del atleta</h2><p class="lead">Estatura y masa definen las proporciones del cuerpo. El sexo selecciona las tablas de masa de los segmentos.</p></div>' +
+      '<div class="field"><span class="lbl" id="sexlbl">Sexo</span><div class="seg" role="radiogroup" aria-labelledby="sexlbl">' +
+      '<label><input type="radio" name="sex" value="M"' + (S.sex === "M" ? " checked" : "") + '>Hombre</label>' +
+      '<label><input type="radio" name="sex" value="F"' + (S.sex === "F" ? " checked" : "") + ">Mujer</label></div></div>" +
+      '<div class="grid2"><div class="field"><label for="mass">Masa corporal</label><div class="inp"><input id="mass" inputmode="decimal" autocomplete="off" value="' + (S.mass || "") + '"><span class="u">kg</span></div><div class="hint" id="h-mass"></div></div>' +
+      '<div class="field"><label for="H">Estatura</label><div class="inp"><input id="H" inputmode="decimal" autocomplete="off" value="' + (S.H || "") + '"><span class="u">cm</span></div><div class="help">Espalda y talones contra la pared, mirada al frente.</div><div class="hint" id="h-H"></div></div></div>' +
+      (S.sex === "F" ? '<div class="note warn">Las técnicas se calibraron con datos de hombres. Para mujeres el modelo usa las masas de segmento femeninas, pero los parámetros de postura no se han contrastado con datos de mujeres.</div>' : "") +
+      '<div><button type="button" class="linkbtn" id="btn-sample">Cargar un atleta de ejemplo</button></div></section>';
+  }
+
+  function viewMeasures() {
+    const keys = shownKeys();
+    const order = ["Pierna", "Pie", "Tronco y brazo", "Cadera", "Control"];
+    let html = "";
+    order.forEach((g) => {
+      const ks = keys.filter((k) => MEAS[k][4] === g);
+      if (!ks.length) return;
+      html += '<div class="group-title">' + g + "</div>" + ks.map((k) => {
+        const m = MEAS[k];
+        const opt = m[7] || (k === "Wa" && S.tech === "peso_muerto_sumo") ? " (opcional)" : "";
+        const estim = estimMsg(k, num(S.m[k]));
+        return '<div class="mfield"><div class="mname"><label for="m-' + k + '"><b>' + m[0] + opt + '</b></label><span class="sym">' + m[1] + '</span></div>' +
+          '<div class="help">' + m[2] + '</div><div class="inp"><input id="m-' + k + '" data-m="' + k + '" inputmode="decimal" autocomplete="off" value="' + (S.m[k] || "") + '"><span class="u">cm</span></div>' +
+          '<div class="hint" id="h-' + k + '">' + estim + "</div></div>";
+      }).join("");
+    });
+    return '<section class="card"><div><h2>Medidas con cinta</h2><p class="lead">' +
+      "Para esta técnica se necesitan " + ["", "una", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho"][neededKeys().length] + " medidas." +
+      " Mide una vez cada tramo, en centímetros.</p></div>" +
+      '<div class="toggle"><input type="checkbox" id="ctl"' + (S.controls ? " checked" : "") + '><label for="ctl">Añadir dos medidas de control (recomendado)</label></div>' +
+      '<div class="note" id="closure" ' + (S.controls ? "" : "hidden") + "></div>" + html + "</section>";
+  }
+
+  function updateClosure() {
+    const el = $("#closure"); if (!el) return;
+    if (!S.controls) { el.hidden = true; return; }
+    el.hidden = false;
+    const raw = getRaw();
+    const parts = [];
+    let bad = false;
+    if (raw.h_troc != null && isFinite(raw.Lt_raw + raw.Ls_raw + raw.ha)) {
+      const v = (raw.h_troc - (raw.ha + raw.Ls_raw + raw.Lt_raw)) * 100;
+      parts.push("Piernas: " + (Math.abs(v) <= 2 ? "cierran" : "no cierran") + " (diferencia " + nf(v, 1) + " cm, se espera menos de 2). " + (Math.abs(v) <= 2 ? "" : "Revisa Lt, Ls o ha."));
+      if (Math.abs(v) > 2) bad = true;
+    }
+    if (raw.h_troc != null && raw.h_acro != null && isFinite(raw.Ltr_raw)) {
+      const v = (raw.h_acro - (raw.h_troc + raw.Ltr_raw)) * 100;
+      parts.push("Tronco: " + (Math.abs(v) <= 3 ? "cierra" : "no cierra") + " (diferencia " + nf(v, 1) + " cm, se espera menos de 3). " + (Math.abs(v) <= 3 ? "" : "Revisa Ltr."));
+      if (Math.abs(v) > 3) bad = true;
+    }
+    el.className = "note" + (bad ? " warn" : "");
+    el.innerHTML = parts.length ? parts.join("<br>") : "Escribe la altura del trocánter y la del acromion para comprobar que las medidas encajan.";
+  }
+
+  // ---------- resultados
+  function prepareResults() {
+    const raw = getRaw();
+    ctx.raw = raw;
+    ctx.a = P.fromRaw(raw);
+    ctx.set = P.perturbedSet(raw, 200, 7);
+    ctx.t = P.TECHNIQUES[S.tech];
+    ctx.tB = S.tab === "wi" ? modifiedTech() : (S.compare ? P.TECHNIQUES[S.compare] : null);
+    computeView();
+    const N = 40; ctx.curve = [];
+    const curveSet = ctx.set.slice(0, 80);
+    for (let i = 0; i <= N; i++) { const b = P.band(curveSet, ctx.t, S.load, i / N); ctx.curve.push(b.n ? b : null); }
+    ctx.curveSet = curveSet; ctx.curveB = null;
+    if (S.tab === "wi" && ctx.tB) computeCurveB();
+  }
+  // ventana de dibujo: cubre todo el recorrido de A (y de B si se compara)
+  function computeView() {
+    let xs = [], ys = [];
+    [ctx.t, ctx.tB].filter(Boolean).forEach((tt) => {
+      for (let i = 0; i <= 20; i++) {
+        try {
+          const q = unfold(P.solve(ctx.a, tt, S.load, i / 20), true);
+          Object.values(q.joints).forEach((p) => { xs.push(p[0]); ys.push(p[1]); });
+          xs.push(q.joints.cadera[0] + ctx.a.hip_ap_offset, q.bar[0] - 0.225, q.bar[0] + 0.225); ys.push(q.joints.hombro[1] + 0.2);
+        } catch (e) { if (!(e instanceof P.Infeasible)) throw e; }
+      }
+    });
+    xs.push(-ctx.raw.Lf / 2, ctx.raw.Lf / 2);
+    const x0 = Math.min.apply(null, xs) - 0.06, x1 = Math.max.apply(null, xs) + 0.32;
+    ctx.view = { X0: x0, W: Math.round((x1 - x0) * 1000), YT: Math.max.apply(null, ys.concat([0.8])) };
+  }
+  function computeCurveB() {
+    ctx.curveB = [];
+    for (let i = 0; i <= 40; i++) { const b = P.band(ctx.curveSet, ctx.tB, S.load, i / 40); ctx.curveB.push(b.n ? b : null); }
+  }
+  function extendView(tt) {
+    let x0 = ctx.view.X0, x1 = ctx.view.X0 + ctx.view.W / 1000, yt = ctx.view.YT;
+    for (let i = 0; i <= 10; i++) {
+      try {
+        const q = unfold(P.solve(ctx.a, tt, S.load, i / 10), true), xs = Object.values(q.joints).map((p) => p[0]).concat([q.bar[0] - 0.225, q.bar[0] + 0.225, q.joints.cadera[0] + ctx.a.hip_ap_offset]);
+        x0 = Math.min(x0, Math.min.apply(null, xs) - 0.06); x1 = Math.max(x1, Math.max.apply(null, xs) + 0.32); yt = Math.max(yt, q.joints.hombro[1] + 0.2);
+      } catch (e) { if (!(e instanceof P.Infeasible)) throw e; }
+    }
+    ctx.view = { X0: x0, W: Math.round((x1 - x0) * 1000), YT: yt };
+  }
+
+  // ---------- «Qué pasaría si»
+  function ctrlDefs() {
+    const t = ctx.t, H = ctx.raw.H, dl = t.exercise === "deadlift";
+    const wNow = t.stance === "shoulder" && ctx.a.shoulder_w > 0 ? ctx.a.shoulder_w : t.w_frac * H;
+    const stR = dl ? [ctx.a.shoulder_w / H, 73 / 168] : [0.85 * wNow / H, 1.8 * wNow / H];
+    const clampR = (b, lo, hi) => [Math.min(lo, b), Math.max(hi, b)];
+    const stance = { id: "stance", field: "w_frac", label: "Distancia entre los tobillos", base: wNow * 100, step: 1, toModel: (v) => v / H / 100,
+      ends: ["más estrecha", "más ancha"], fmt: (v) => nf(v, 0) + " cm" };
+    [stance.lo, stance.hi] = clampR(stance.base, stR[0] * H * 100, stR[1] * H * 100);
+    if (dl) {
+      const bar = { id: "bar", field: "bar_x_offset", label: "Posición de la barra respecto al medio pie", base: t.bar_x_offset * 100, step: 0.5, toModel: (v) => v / 100,
+        ends: ["hacia el talón", "hacia los dedos"], fmt: (v) => (v > 0 ? "+" : "") + nf(v, 1) + " cm" };
+      bar.lo = bar.base - 5; bar.hi = bar.base + 5;
+      const hip = { id: "hip", field: "f_h0", label: "Altura de la cadera al despegar", base: t.f_h0, step: 0.005, toModel: (v) => v, ends: ["más baja", "más alta"],
+        fmt: (v) => { try { return nf(P.solve(ctx.a, Object.assign({}, t, { f_h0: v }), S.load, 0).joints.cadera[1] * 100, 0) + " cm"; } catch (e) { return "—"; } } };
+      hip.lo = Math.max(0.55, t.f_h0 - 0.10); hip.hi = Math.min(0.95, t.f_h0 + 0.06);
+      return [bar, hip, stance];
+    }
+    const depth = { id: "depth", field: "depth_deg", label: "Profundidad del muslo", base: t.depth_deg, step: 0.5, toModel: (v) => v, ends: ["menos profunda", "más profunda"],
+      fmt: (v) => (v >= 0 ? nf(v, 0) + "° bajo la horizontal" : nf(-v, 0) + "° sobre la horizontal"), lo: Math.min(-10, t.depth_deg), hi: Math.max(15, t.depth_deg) };
+    const shank = { id: "shank", field: "shank_max_deg", label: "Inclinación de la tibia en el fondo", base: t.shank_max_deg, step: 0.5, toModel: (v) => v,
+      ends: ["rodillas más atrás", "rodillas más adelante"], fmt: (v) => nf(v, 0) + "°", lo: Math.min(15, t.shank_max_deg), hi: Math.max(40, t.shank_max_deg) };
+    return [stance, depth, shank];
+  }
+  function modifiedTech() {
+    const t2 = Object.assign({}, ctx.t, { name: "Con el ajuste" });
+    let changed = false;
+    ctrlDefs().forEach((d) => { const v = S.wi[d.id]; if (v != null && Math.abs(v - d.base) > 1e-9) { t2[d.field] = d.toModel(v); if (d.field === "w_frac") t2.stance = "frac"; changed = true; } });
+    return changed ? t2 : null;
+  }
+  const CUES = {
+    bar: {
+      down: ["Barra más pegada a las piernas", "Arrastra la barra por las espinillas y los muslos.", "Jala la barra hacia ti con los dorsales antes de despegar.", "La barra roza las piernas durante todo el recorrido."],
+      up: ["Barra más lejos de las piernas", "Arrastra la barra por las espinillas para que no se aleje.", "Jala la barra hacia ti con los dorsales antes de despegar.", "Hay un espacio visible entre la barra y la espinilla al despegar."],
+    },
+    hip: {
+      up: ["Cadera más alta al despegar", "Empuja el suelo hacia abajo con los pies.", "Sube la cadera antes de que la barra se mueva, sin perder la espalda neutra.", "El tronco queda más horizontal y las espinillas más verticales al despegar."],
+      down: ["Cadera más baja al despegar", "Empuja el suelo lejos de ti.", "Baja la cadera y flexiona más las rodillas antes de jalar.", "Las rodillas pasan más adelante y el tronco queda más vertical al despegar."],
+    },
+    stance_dl: {
+      up: ["Postura más ancha", "Abre el suelo con los pies.", "Lleva las rodillas hacia afuera, siguiendo la punta de los pies.", "Las rodillas siguen la línea de los pies y la barra recorre menos distancia."],
+      down: ["Postura más estrecha", "Empuja el suelo hacia abajo con los pies bajo las caderas.", "Mantén los pies a la anchura de la cadera.", "Los pies quedan bajo las caderas y la barra recorre más distancia."],
+    },
+    stance_sq: {
+      up: ["Postura más ancha", "Abre el suelo con los pies.", "Lleva las rodillas hacia afuera, siguiendo la punta de los pies.", "Las rodillas siguen la dirección de los pies durante todo el descenso."],
+      down: ["Postura más estrecha", "Empuja el suelo hacia abajo con los pies bajo las caderas.", "Mantén los pies a la anchura de la cadera.", "Las rodillas siguen la dirección de los pies y los talones no se levantan."],
+    },
+    depth: {
+      up: ["Más profundidad", "Siéntate hacia abajo, entre los talones.", "Sigue bajando hasta que el pliegue de la cadera quede por debajo de la rodilla.", "El pliegue de la cadera queda por debajo de la parte alta de la rodilla."],
+      down: ["Menos profundidad", "Siéntate sobre un banco a la altura que quieres.", "Detente cuando los muslos queden paralelos al suelo.", "Los muslos quedan paralelos al suelo en el punto más bajo."],
+    },
+    shank: {
+      up: ["Más avance de las rodillas", "Lleva las rodillas hacia la pared de enfrente, con los talones pegados al suelo.", "Deja que las rodillas pasen sobre la punta de los pies.", "Los talones no se levantan en el punto más bajo."],
+      down: ["Menos avance de las rodillas", "Siéntate hacia atrás, hacia la pared de atrás.", "Empuja la cadera hacia atrás al iniciar el descenso.", "Las tibias quedan más verticales y el tronco se inclina más."],
+    },
+  };
+  function peakOf(curve, j) {
+    let best = 0;
+    curve.forEach((b) => { if (b && Math.abs(b[j][1]) > Math.abs(best)) best = b[j][1]; });
+    return best;
+  }
+  function wiControlsHTML() {
+    const defs = ctrlDefs();
+    return defs.map((d) => {
+      const v = S.wi[d.id] != null ? S.wi[d.id] : d.base;
+      return '<div class="wi-ctl"><div class="bl"><label for="wi-' + d.id + '"><b>' + d.label + '</b></label><span class="bv" id="wiv-' + d.id + '">' + d.fmt(v) + "</span></div>" +
+        '<input type="range" id="wi-' + d.id + '" data-wi="' + d.id + '" min="' + d.lo + '" max="' + d.hi + '" step="' + d.step + '" value="' + v + '">' +
+        '<div class="sl-ends"><span>' + d.ends[0] + "</span><span>" + d.ends[1] + '</span></div><div class="small muted">Valor de la técnica: ' + d.fmt(d.base) + "</div></div>";
+    }).join("") + '<div><button type="button" class="linkbtn" id="wi-reset">Restablecer</button></div>';
+  }
+  function updateWhatIf(r, rB) {
+    const el = $("#wi-effect"); if (!el) return;
+    if (!ctx.tB) { el.innerHTML = '<p class="muted">Mueve un control para ver cómo cambia la palanca.</p>'; return; }
+    if (!rB) { el.innerHTML = '<div class="note bad">Con ese ajuste la postura no es alcanzable en este punto del recorrido. Prueba un valor más cercano al original.</div>'; return; }
+    const div = S.perKg ? ctx.raw.mass : 1, unit = S.perKg ? "N·m/kg" : "N·m", dd = S.perKg ? 1 : 0;
+    if (!ctx.curveB) computeCurveB();
+    const rows = P.JOINTS.map((j) => {
+      const pa = peakOf(ctx.curve, j) / div, pb = peakOf(ctx.curveB, j) / div;
+      const arm = (j === "lumbar" ? true : true) ? nf(r.arms[j] * 100, 0) + " → " + nf(rB.arms[j] * 100, 0) : "";
+      return "<tr><td>" + JN[j] + "</td><td>" + arm + "</td><td>" + nf(pa, dd) + " → " + nf(pb, dd) + "</td></tr>";
+    }).join("");
+    const ch = [];
+    P.JOINTS.forEach((j) => {
+      const pa = peakOf(ctx.curve, j), pb = peakOf(ctx.curveB, j), d = Math.abs(pb) - Math.abs(pa);
+      if (Math.abs(d) >= Math.max(10, 0.05 * Math.abs(pa))) ch.push((d < 0 ? "baja" : "sube") + " en " + JN[j].toLowerCase() + " (" + (d > 0 ? "+" : "−") + nf(Math.abs(d) / div, dd) + " " + unit + " en valor absoluto)");
+    });
+    const summary = ch.length ? "El pico de demanda " + ch.join("; ") + "." : "Con este ajuste el pico de demanda casi no cambia en ninguna articulación.";
+    const defs = ctrlDefs();
+    const cues = defs.map((d) => {
+      const v = S.wi[d.id]; if (v == null) return null;
+      const rel = (v - d.base) / (d.hi - d.lo);
+      if (Math.abs(rel) < 0.08) return null;
+      const key = d.id === "stance" ? (exercise() === "deadlift" ? "stance_dl" : "stance_sq") : d.id;
+      return { rel: Math.abs(rel), c: CUES[key][rel > 0 ? "up" : "down"] };
+    }).filter(Boolean).sort((x, y) => y.rel - x.rel).slice(0, 3);
+    const cueHTML = cues.map((q) => '<div class="cue"><div class="eyebrow">Indicación sugerida</div><div class="q">' + q.c[0] + "</div><p><b>Foco externo:</b> «" + q.c[1] + "»</p><p><b>Alternativa interna:</b> " + q.c[2] + "</p><p><b>Qué mirar:</b> " + q.c[3] + "</p></div>").join("");
+    el.innerHTML = '<p><b>' + summary + '</b></p><div style="overflow-x:auto"><table class="wi-t"><thead><tr><th>Articulación</th><th>Brazo de la barra (cm), ahora</th><th>Pico en el recorrido (' + unit + ")</th></tr></thead><tbody>" + rows + "</tbody></table></div>" +
+      '<div class="small muted">Cada celda muestra «técnica original → con el ajuste». El brazo corresponde a la posición actual del deslizador de recorrido.</div>' + cueHTML +
+      (cues.length ? '<div class="small muted">Las indicaciones son sugerencias de trabajo: valídalas con el atleta. La app no sabe si puede ejecutar el ajuste.</div>' : "") +
+      '<ul class="small muted" style="margin:0;padding-left:1.1em;display:grid;gap:4px"><li>Cada ajuste se calcula con todo lo demás igual. En la práctica, mover la barra o la cadera también cambia el tronco y los hombros.</li><li>Si baja el momento en una articulación, puede subir en otra: revisa la tabla.</li><li>El modelo no sabe si el atleta tiene la fuerza o la movilidad para ese ajuste.</li><li>Los rangos de los controles son rangos prácticos, no datos publicados. Lejos de las posturas medias calibradas el modelo extrapola.</li></ul>';
+  }
+
+  function rightCol() {
+    const t = P.TECHNIQUES[S.tech];
+    const opts = Object.keys(P.TECHNIQUES).filter((k) => P.TECHNIQUES[k].exercise === t.exercise && k !== S.tech)
+      .map((k) => '<option value="' + k + '"' + (S.compare === k ? " selected" : "") + ">" + P.TECHNIQUES[k].name + "</option>").join("");
+    const warns = [];
+    if (!t.calibrated) warns.push('<div class="note warn">Esta técnica no está calibrada con datos publicados: sus parámetros son ilustrativos.</div>');
+    if (S.sex === "F") warns.push('<div class="note warn">Calibración basada en hombres. Interpreta con cautela en mujeres.</div>');
+    const tabs = '<div class="tabs" role="group" aria-label="Vista"><button type="button" data-tab="res" aria-pressed="' + (S.tab === "res") + '">Resultados</button><button type="button" data-tab="wi" aria-pressed="' + (S.tab === "wi") + '">Qué pasaría si</button></div>';
+    const unitTog = '<div class="unit-tog" role="group" aria-label="Unidad"><button type="button" data-unit="abs" aria-pressed="' + !S.perKg + '">N·m</button><button type="button" data-unit="kg" aria-pressed="' + S.perKg + '">N·m/kg</button></div>';
+    const infeas = '<div class="note bad" id="infeasible" hidden>Con estas medidas la postura no es alcanzable en este punto del recorrido. Revisa el brazo, el tronco o la pierna.</div>';
+    if (S.tab === "wi") {
+      if (!t.calibrated) return tabs + warns.join("") + '<section class="card"><h3>Qué pasaría si</h3><p class="muted">Esta técnica no tiene datos publicados para calibrar, así que no se ofrece el ajuste. Elige otra técnica en el paso 1.</p></section>';
+      return tabs + warns.join("") + infeas +
+        '<section class="card"><h3>Ajustes</h3><p class="small muted">Mueve un control y mira cómo cambia la palanca. Lo demás se mantiene igual.</p>' + wiControlsHTML() + "</section>" +
+        '<section class="card"><h3>Efecto del ajuste</h3><div id="wi-effect" style="display:grid;gap:12px"></div></section>' +
+        '<section class="card"><div class="hdr-row"><h3>Demanda en cada articulación</h3>' + unitTog + '</div><div id="bars"></div><div class="small muted" id="takeaway"></div><div id="diff"></div></section>';
+    }
+    return tabs + warns.join("") + infeas +
+      '<section class="card"><div class="hdr-row"><h3>Demanda en cada articulación</h3>' + unitTog + "</div>" +
+      '<div class="cmp"><label for="cmp" class="small muted">Comparar con</label><select id="cmp"><option value="">Ninguna</option>' + opts + "</select></div>" +
+      '<div id="bars"></div><div class="small muted" id="takeaway"></div><div id="diff"></div></section>' +
+      '<section class="card"><h3>Reparto entre tobillo, rodilla y cadera</h3><div id="share"></div></section>' +
+      '<section class="card"><h3>Cómo cambia durante el recorrido</h3><div id="chart"></div><div class="small muted">Línea punteada: posición actual del deslizador. Las líneas muestran la mediana de las variaciones simuladas.</div></section>' +
+      '<section class="card"><details><summary>Cómo leer estos resultados</summary><ul>' +
+      "<li>El momento es el peso multiplicado por su distancia horizontal a la articulación (el brazo de palanca). Indica cuánto debe compensar la musculatura.</li>" +
+      "<li>Valores positivos son momentos extensores netos. Un valor negativo indica que el peso empuja esa articulación hacia el lado contrario.</li>" +
+      "<li>El modelo es estático, en el plano sagital y con postura simétrica. No incluye aceleración ni diferencias de técnica entre atletas.</li>" +
+      "<li>La barra horizontal de cada fila muestra el rango que contiene el 95 % de los resultados al variar los errores de la cinta y la ubicación de la cadera.</li>" +
+      "<li>Cerca del bloqueo, estructuras pasivas sostienen parte de la carga. No leas esos momentos como esfuerzo muscular.</li>" +
+      "<li>La zona lumbar usa un punto aproximado a un 10 % de la longitud del tronco sobre la cadera.</li></ul></details></section>";
+  }
+  function refreshRight() {
+    $("#right").innerHTML = rightCol();
+    prepareResults();
+    const ch = $("#chart"); if (ch) ch.innerHTML = chartHTML();
+    updateResults();
+  }
+
+  function viewResults() {
+    const t = P.TECHNIQUES[S.tech];
+    const sq = t.exercise === "squat";
+    return '<div class="res"><section class="card fig-card"><div class="hdr-row"><h3>' + t.name + '</h3><span class="mono small muted">' + nf(S.load, 0) + " kg</span></div>" +
+      '<button type="button" class="btn primary" id="x-open">Explicar con el atleta</button>' +
+      '<svg class="fig" id="fig" viewBox="0 0 1000 1900" role="img" aria-label="Figura de palitos con el brazo de palanca de la barra en cada articulación"></svg>' +
+      '<div class="unit-tog" role="group" aria-label="Vista de las piernas" style="margin-top:8px"><button type="button" data-lv="real" aria-pressed="' + (S.legView === "real") + '">Piernas reales</button><button type="button" data-lv="lat" aria-pressed="' + (S.legView === "lat") + '">Vista lateral</button></div>' +
+      '<p class="small muted" id="fignote" style="margin:6px 0 0"></p>' +
+      '<div class="sl"><label for="sl" class="small"><b>Recorrido: <span id="slv">' + Math.round(S.s * 100) + '</span> %</b></label><input type="range" id="sl" min="0" max="1" step="0.005" value="' + S.s + '">' +
+      '<div class="sl-ends"><span>' + (sq ? "De pie" : "Barra en el suelo") + "</span><span>" + (sq ? "Fondo" : "Bloqueo") + "</span></div></div>" +
+      '<div class="stats" id="stats"></div>' +
+      '<p class="small muted">Los círculos azules marcan tobillo, rodilla y centro estimado de la cadera: más oscuro, mayor momento. Las líneas horizontales con medida son los brazos de palanca de la barra. El punto pequeño en la cadera es el trocánter. Línea punteada naranja: postura comparada.</p></section>' +
+      '<div id="right" style="display:grid;gap:16px;min-width:0;align-content:start">' + rightCol() + "</div></div>";
+  }
+
+  // --- dibujo de la figura
+  // Con postura ancha las piernas yacen en un plano inclinado (psi) respecto al plano sagital: en una vista lateral pura la tibia y
+  // el muslo se ven más cortos (por cos psi). «Piernas a longitud real» abre ese plano sobre el sagital: la rodilla y la cadera se dibujan
+  // a su altura dentro del plano de la pierna (x no cambia, así que los brazos de palanca son los mismos) y todo lo que va sobre la
+  // cadera (tronco, cabeza, brazos, barra) se sube lo mismo. Solo cambia el dibujo; el cálculo de momentos no se toca.
+  function unfold(q, force) {
+    if (!force && S.legView !== "real") return q;
+    const ha = ctx.a.ha, cp = Math.cos(q.psi_deg * Math.PI / 180), j = q.joints;
+    const dy = (j.cadera[1] - ha) / cp - (j.cadera[1] - ha);
+    const up = (p) => [p[0], p[1] + dy];
+    return Object.assign({}, q, {
+      joints: { tobillo: j.tobillo, rodilla: [j.rodilla[0], ha + (j.rodilla[1] - ha) / cp], cadera: up(j.cadera), hombro: up(j.hombro) },
+      bar: up(q.bar), unfold_dy: dy,
+    });
+  }
+  function figNote(r0) {
+    const a = ctx.a, j = r0.joints, d = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
+    const tib = d(j.tobillo, j.rodilla) / a.Ls * 100, mus = d(j.rodilla, j.cadera) / a.Lt * 100;
+    const dy = unfold(r0, true).unfold_dy * 100;
+    if (r0.psi_deg < 5) return "Postura estrecha: las piernas casi no se inclinan y la vista lateral las muestra a su longitud.";
+    if (S.legView === "real") {
+      return "Piernas dibujadas a su longitud real. Por la separación lateral de los pies, el plano de las piernas está inclinado " + nf(r0.psi_deg, 0) + "° respecto al plano lateral. " +
+        (dy >= 1 ? "Por eso la cadera y la barra se dibujan " + nf(dy, 0) + " cm más arriba que su altura real (cadera real: " + nf(r0.joints.cadera[1] * 100, 0) + " cm). " : "") + "Los brazos de palanca (medidas horizontales) no cambian.";
+    }
+    return "Vista lateral real: las piernas, inclinadas " + nf(r0.psi_deg, 0) + "° por la separación de los pies, se ven más cortas (tibia al " + nf(tib, 0) + " %, muslo al " + nf(mus, 0) + " % de su longitud). Es un efecto de la vista, no de las medidas.";
+  }
+  function drawFigure(r, rB, opt) {
+    const plateY = r.bar[1]; // el disco real apoya en el suelo (peso muerto); en sentadilla acompaña a la barra dibujada
+    r = unfold(r); if (rB) rB = unfold(rB);
+    const a = ctx.a;
+    const X0 = ctx.view.X0, YT = ctx.view.YT;
+    const X = (x) => Math.round((x - X0) * 1000), Y = (y) => Math.round((YT - y) * 1000);
+    const hipC = (rr) => [rr.joints.cadera[0] + a.hip_ap_offset, rr.joints.cadera[1]];
+    const pts = (rr) => {
+      const j = rr.joints, sh = j.hombro;
+      return { ank: j.tobillo, kn: j.rodilla, hp: j.cadera, sh };
+    };
+    const line = (p, cls) => '<polyline class="' + cls + '" points="' + p.map((q) => X(q[0]) + "," + Y(q[1])).join(" ") + '"/>';
+    const body = (rr, cls, isB) => {
+      const p = pts(rr);
+      const trunkDir = [p.sh[0] - p.hp[0], p.sh[1] - p.hp[1]];
+      const L = Math.hypot(trunkDir[0], trunkDir[1]) || 1;
+      const headC = [p.sh[0] + trunkDir[0] / L * 0.11, p.sh[1] + trunkDir[1] / L * 0.11];
+      let out = line([p.ank, p.kn, p.hp, p.sh], cls);
+      if (exercise() === "deadlift") out += line([p.sh, rr.bar], cls);
+      out += '<circle cx="' + X(headC[0]) + '" cy="' + Y(headC[1]) + '" r="' + (isB ? 70 : 78) + '" class="' + (isB ? "seg-b" : "seg-a") + '" style="stroke-width:' + (isB ? 10 : 18) + '"/>';
+      return out;
+    };
+    let g = "";
+    g += '<line class="floor" x1="0" x2="' + ctx.view.W + '" y1="' + Y(0) + '" y2="' + Y(0) + '"/>';
+    // pie
+    const ank = r.joints.tobillo;
+    g += '<polyline class="seg-a" style="stroke-width:14" points="' + [[-a.Lf / 2, 0], [a.Lf / 2, 0], [a.Lf / 2 - 0.02, 0.03], [ank[0], ank[1]]].map((q) => X(q[0]) + "," + Y(q[1])).join(" ") + '"/>';
+    // disco y plomada
+    g += '<circle class="plate" cx="' + X(r.bar[0]) + '" cy="' + Y(exercise() === "deadlift" ? plateY : r.bar[1]) + '" r="225"/>';
+    g += '<line class="plumb" x1="' + X(r.bar[0]) + '" x2="' + X(r.bar[0]) + '" y1="' + Y(r.bar[1]) + '" y2="' + Y(0) + '"/>';
+    if (rB) g += body(rB, "seg-b", true);
+    g += body(r, "seg-a", false);
+    g += '<circle cx="' + X(r.bar[0]) + '" cy="' + Y(r.bar[1]) + '" r="20" fill="var(--ink)"/>';
+    // articulaciones coloreadas por demanda
+    const mm = r.moments, mx = Math.max(1, Math.abs(mm.tobillo), Math.abs(mm.rodilla), Math.abs(mm.cadera), Math.abs(mm.lumbar));
+    const heatOf = (name) => (opt && opt.heat ? opt.heat[name] : Math.min(1, Math.abs(mm[name]) / mx));
+    const jt = (name, p) => '<circle class="jt" cx="' + X(p[0]) + '" cy="' + Y(p[1]) + '" r="' + (opt && opt.big ? (name === "lumbar" ? 28 : 46) : 30) + '" fill-opacity="' + (0.18 + 0.82 * heatOf(name)).toFixed(2) + '"/>';
+    const hc = hipC(r);
+    g += '<circle cx="' + X(r.joints.cadera[0]) + '" cy="' + Y(r.joints.cadera[1]) + '" r="13" fill="var(--ink)"/>';
+    g += jt("tobillo", r.joints.tobillo) + jt("rodilla", r.joints.rodilla) + jt("cadera", hc);
+    const lumbP = [r.joints.cadera[0] + 0.1 * (r.joints.hombro[0] - r.joints.cadera[0]), r.joints.cadera[1] + 0.1 * (r.joints.hombro[1] - r.joints.cadera[1])];
+    if (opt && opt.heat) g += jt("lumbar", lumbP);
+    // brazos de palanca
+    const dimm = (name, p, dy) => {
+      const x1 = X(r.bar[0]), x2 = X(p[0]), y = Y(p[1]);
+      const arm = r.arms[name] * 100;
+      const mid = (x1 + x2) / 2;
+      const lab = nf(Math.abs(arm), 0) + " cm";
+      const anchor = "middle";
+      return '<line class="dim" x1="' + x1 + '" x2="' + x2 + '" y1="' + y + '" y2="' + y + '"/><line class="dim" x1="' + x1 + '" x2="' + x1 + '" y1="' + (y - 16) + '" y2="' + (y + 16) + '"/><line class="dim" x1="' + x2 + '" x2="' + x2 + '" y1="' + (y - 16) + '" y2="' + (y + 16) + '"/>' +
+        '<text x="' + mid + '" y="' + (y + dy) + '" text-anchor="' + anchor + '">' + lab + "</text>";
+    };
+    if (opt && opt.only) {
+      const pt = { cadera: hc, rodilla: r.joints.rodilla, tobillo: r.joints.tobillo, lumbar: lumbP }[opt.only];
+      g += dimm(opt.only, pt, 70);
+    } else {
+      if (Math.abs(r.arms.cadera) >= 0.04) g += dimm("cadera", hc, -22);
+      if (Math.abs(r.arms.rodilla) >= 0.04) g += dimm("rodilla", r.joints.rodilla, -22);
+      if (Math.abs(r.arms.tobillo) >= 0.04) g += dimm("tobillo", r.joints.tobillo, 52);
+    }
+    if (opt && opt.tag) {
+      const pt = { cadera: hc, rodilla: r.joints.rodilla, tobillo: r.joints.tobillo, lumbar: lumbP }[opt.tag.joint];
+      const left = X(pt[0]) > ctx.view.W / 2;
+      g += '<text class="tagtxt" x="' + (X(pt[0]) + (left ? -64 : 64)) + '" y="' + (Y(pt[1]) - 78) + '" text-anchor="' + (left ? "end" : "start") + '">' + opt.tag.text + "</text>";
+    }
+    const sx = X(X0 + 0.04), sy = Y(0) + 0;
+    g += '<line class="dim" x1="' + sx + '" x2="' + (sx + 200) + '" y1="' + (Y(0) + 30) + '" y2="' + (Y(0) + 30) + '"/><text class="lab" x="' + (sx + 210) + '" y="' + (Y(0) + 42) + '">20 cm</text>';
+    g += '<text class="lab" x="' + (X(r.bar[0]) + 240) + '" y="' + (Y(r.bar[1]) + 12) + '">barra</text>';
+    return g;
+  }
+
+  function niceTicks(lo, hi, n) {
+    const span = hi - lo || 1, step0 = span / n, mag = Math.pow(10, Math.floor(Math.log10(step0)));
+    const f = step0 / mag, step = (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * mag;
+    const out = []; for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(v);
+    return out;
+  }
+
+  function axisHTML(lo, hi, pos, unit) {
+    const ticks = niceTicks(lo, hi, 4);
+    return '<div class="axis" aria-hidden="true">' + ticks.map((v) => '<span style="left:' + pos(v) + '%">' + nf(v, S.perKg ? 1 : 0) + "</span>").join("") + '</div><div class="axis-t">' + unit + " (positivo: extensor)</div>";
+  }
+  function barsHTML(bA, bB, r) {
+    const div = S.perKg ? ctx.raw.mass : 1;
+    const js = P.JOINTS;
+    let lo = 0, hi = 0;
+    js.forEach((j) => { [bA, bB].forEach((b) => { if (b) { lo = Math.min(lo, b[j][0] / div); hi = Math.max(hi, b[j][2] / div); } }); });
+    const pad = (hi - lo) * 0.04 || 1; lo -= pad * (lo < 0 ? 1 : 0); hi += pad;
+    const pos = (v) => ((v - lo) / (hi - lo)) * 100;
+    const d = S.perKg ? 1 : 0;
+    const unit = S.perKg ? "N·m/kg" : "N·m";
+    const order = ["tobillo", "rodilla", "cadera", "lumbar"];
+    return order.map((j) => {
+      const row = (b, cls, t1) => {
+        const [l, m, h] = b[j].map((v) => v / div);
+        const x0 = Math.min(0, m), x1 = Math.max(0, m);
+        return '<div class="bar ' + cls + '" style="left:' + pos(x0) + "%;width:" + Math.max(0.4, pos(x1) - pos(x0)) + '%"></div>' +
+          '<div class="wh ' + t1 + '" style="left:' + pos(l) + "%;width:" + (pos(h) - pos(l)) + '%"></div>' +
+          '<div class="cap ' + t1 + '" style="left:' + pos(l) + '%"></div><div class="cap ' + t1 + '" style="left:calc(' + pos(h) + '% - 2px)"></div>';
+      };
+      const fmt = (b) => nf(b[j][1] / div, d) + " " + unit + ' <small>(' + nf(b[j][0] / div, d) + " a " + nf(b[j][2] / div, d) + " " + unit + ")</small>";
+      return '<div class="brow"><div class="bl"><b>' + JN[j] + '</b> <span class="muted small">brazo ' + nf(r.arms[j] * 100, 0) + ' cm</span><span class="bv">' + fmt(bA) + (bB ? '<br><span style="color:var(--alt)">' + fmt(bB) + "</span>" : "") + "</span></div>" +
+        '<div class="track" style="height:' + (bB ? 28 : 16) + 'px"><div class="zero" style="left:' + pos(0) + '%"></div>' + row(bA, "a", "t1") + (bB ? row(bB, "b", "t2") : "") + "</div></div>";
+    }).join("") + axisHTML(lo, hi, pos, unit) + '<div class="small muted" style="margin-top:6px">Momento en ' + (S.perKg ? "N·m por kg de masa corporal" : "newton metro (N·m)") + ". Barra: mediana. Línea: 95 % de las variaciones simuladas." +
+      (bB ? ' Azul: ' + ctx.t.name + ". Contorno naranja: " + ctx.tB.name + "." : "") + "</div>";
+  }
+
+  function chartHTML() {
+    const W = 600, Hh = 290, L = 62, R = 74, T = 14, B = 58;
+    const js = P.JOINTS, div = S.perKg ? ctx.raw.mass : 1, unit = S.perKg ? "N·m/kg" : "N·m";
+    let lo = 0, hi = 1;
+    ctx.curve.forEach((b) => { if (b) js.forEach((j) => { lo = Math.min(lo, b[j][1] / div); hi = Math.max(hi, b[j][1] / div); }); });
+    const ticks = niceTicks(lo, hi, 4);
+    lo = Math.min(lo, ticks[0]); hi = Math.max(hi, ticks[ticks.length - 1]);
+    const X = (s) => L + s * (W - L - R), Y = (v) => T + (1 - (v - lo) / (hi - lo)) * (Hh - T - B);
+    let g = "";
+    ticks.forEach((v) => { g += '<line class="grid" x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(v) + '" y2="' + Y(v) + '"/><text x="' + (L - 6) + '" y="' + (Y(v) + 4) + '" text-anchor="end">' + nf(v, S.perKg ? 1 : 0) + "</text>"; });
+    g += '<text x="14" y="' + ((T + Hh - B) / 2) + '" text-anchor="middle" transform="rotate(-90 14 ' + ((T + Hh - B) / 2) + ')">Momento (' + unit + ")</text>";
+    [0, 0.25, 0.5, 0.75, 1].forEach((v) => { g += '<line class="grid" x1="' + X(v) + '" x2="' + X(v) + '" y1="' + (Hh - B) + '" y2="' + (Hh - B + 5) + '"/><text x="' + X(v) + '" y="' + (Hh - B + 19) + '" text-anchor="middle">' + Math.round(v * 100) + " %</text>"; });
+    g += '<text x="' + ((L + W - R) / 2) + '" y="' + (Hh - 6) + '" text-anchor="middle">Recorrido (% desde ' + (exercise() === "squat" ? "de pie hasta el fondo" : "el suelo hasta el bloqueo") + ")</text>";
+    const N = ctx.curve.length - 1, ends = [];
+    js.forEach((j) => {
+      const pts = ctx.curve.map((b, i) => b ? X(i / N).toFixed(1) + "," + Y(b[j][1] / div).toFixed(1) : null).filter(Boolean);
+      if (!pts.length) return;
+      g += '<polyline class="ln" style="stroke:' + JCOL[j] + '" points="' + pts.join(" ") + '"/>';
+      const last = pts[pts.length - 1].split(",");
+      ends.push({ j, x: parseFloat(last[0]), y: parseFloat(last[1]) });
+    });
+    ends.sort((p, q) => p.y - q.y);
+    for (let i = 1; i < ends.length; i++) if (ends[i].y - ends[i - 1].y < 14) ends[i].y = ends[i - 1].y + 14;
+    ends.forEach((e) => { g += '<text style="fill:' + JCOL[e.j] + '" x="' + (e.x + 6) + '" y="' + (e.y + 4) + '">' + JN[e.j].replace("Zona ", "") + "</text>"; });
+    g += '<line class="cur" id="curline" x1="' + X(S.s) + '" x2="' + X(S.s) + '" y1="' + T + '" y2="' + (Hh - B) + '"/>';
+    return '<svg class="chart" viewBox="0 0 ' + W + " " + Hh + '" role="img" aria-label="Momento articular en newton metro a lo largo del recorrido">' + g + "</svg>";
+  }
+
+  function updateResults() {
+    const t = ctx.t, tB = ctx.tB, a = ctx.a;
+    let r = null, rB = null, err = false;
+    try { r = P.solve(a, t, S.load, S.s); if (tB) rB = P.solve(a, tB, S.load, S.s); } catch (e) { if (e instanceof P.Infeasible) err = true; else throw e; }
+    $d("#infeasible").hidden = !err;
+    if (err) { $("#fig").innerHTML = ""; $("#stats").innerHTML = ""; $d("#bars").innerHTML = ""; $d("#diff").innerHTML = ""; $d("#takeaway").textContent = ""; $d("#share").innerHTML = ""; if (S.tab === "wi") $d("#wi-effect").innerHTML = ""; return; }
+    if (tB) extendView(tB);
+    $("#fig").setAttribute("viewBox", "0 0 " + ctx.view.W + " " + Math.round(ctx.view.YT * 1000 + 70));
+    $("#fig").innerHTML = drawFigure(r, rB);
+    $("#fignote").textContent = figNote(r);
+    const bA = P.band(ctx.set, t, S.load, S.s);
+    const bB = tB ? P.band(ctx.set, tB, S.load, S.s) : null;
+    $d("#bars").innerHTML = barsHTML(bA, bB, r);
+    const lost = bA.n < ctx.set.length ? '<div class="note warn small">En ' + nf((1 - bA.n / ctx.set.length) * 100, 0) + " % de las variaciones simuladas la postura no era alcanzable. El rango se calculó con el resto.</div>" : "";
+    // estadísticas
+    const drop = (r.bar[1]).toFixed(2);
+    $("#stats").innerHTML = [
+      ["Altura de la barra", nf(r.bar[1] * 100, 0) + " cm"],
+      ["Tronco respecto a la vertical", nf(r.trunk_deg, 0) + "°"],
+      ["Centro de presión respecto al medio pie", nf(r.cop_x * 100, 0) + " cm (" + (r.cop_in_base ? "dentro" : "fuera") + ")"],
+    ].map(([k, v]) => '<div class="stat"><b>' + v + "</b><span>" + k + "</span></div>").join("");
+    if (!r.cop_in_base) $("#stats").innerHTML += '<div class="note warn small" style="grid-column:1/-1">El centro de presión queda fuera de la base del pie en este punto: el atleta no podría sostener esta postura con la barra en esa posición.</div>';
+    const legs = r.shares;
+    const top = Object.keys(legs).sort((x, y) => legs[y] - legs[x])[0];
+    $d("#takeaway").innerHTML = "En este punto, la mayor parte de la demanda de pierna está en la " + JN[top].toLowerCase() + " (" + nf(legs[top] * 100, 0) + " %)." + lost;
+    $d("#share").innerHTML = '<div class="share" role="img" aria-label="Reparto porcentual">' + ["tobillo", "rodilla", "cadera"].map((j) => '<span style="width:' + (legs[j] * 100) + "%;background:" + JCOL[j] + '"></span>').join("") + "</div>" +
+      '<div class="share-leg">' + ["tobillo", "rodilla", "cadera"].map((j) => '<span><i class="dot" style="background:' + JCOL[j] + '"></i>' + JN[j] + " " + nf(legs[j] * 100, 0) + " %</span>").join("") + "</div>" +
+      '<div class="small muted">Porción del momento total de pierna (en valor absoluto) que corresponde a cada articulación.</div>';
+    // diferencia pareada
+    if (tB) {
+      const pd = P.pairedDiff(ctx.set, t, tB, S.load, S.s), div = S.perKg ? ctx.raw.mass : 1;
+      $d("#diff").innerHTML = '<h3 style="margin-top:8px">' + tB.name + " menos " + t.name + '</h3><div class="diff">' + ["tobillo", "rodilla", "cadera", "lumbar"].map((j) => {
+        const q = pd[j];
+        return "<div>" + JN[j] + "<b>" + (q.median > 0 ? "+" : "") + nf(q.median / div, S.perKg ? 1 : 0) + " " + (S.perKg ? "N·m/kg" : "N·m") + "</b>es menor en " + nf(q.pLess * 100, 0) + " % de los casos</div>";
+      }).join("") + "</div>";
+    } else $d("#diff").innerHTML = "";
+    if (S.tab === "wi") updateWhatIf(r, rB);
+    const cl = $("#curline"); if (cl) { const W = 600, L = 62, R = 74; const x = L + S.s * (W - L - R); cl.setAttribute("x1", x); cl.setAttribute("x2", x); }
+  }
+
+
+  // ---------- modo explicar (el entrenador enseña en vivo)
+  const ZONE = { tobillo: "las pantorrillas", rodilla: "los cuádriceps", cadera: "los glúteos y los isquiotibiales", lumbar: "la espalda baja" };
+  const ZONE_SHORT = { tobillo: "Pantorrillas", rodilla: "Cuádriceps", cadera: "Glúteos e isquios", lumbar: "Espalda baja" };
+  const ART_DE = { tobillo: "del tobillo", rodilla: "de la rodilla", cadera: "de la cadera", lumbar: "de la zona lumbar" };
+  const ART_SOBRE = { tobillo: "el tobillo", rodilla: "la rodilla", cadera: "la cadera", lumbar: "la zona lumbar" };
+  let playRaf = 0;
+  function reduceMotion() { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { return false; } }
+  function stopPlay() { if (playRaf) { cancelAnimationFrame(playRaf); playRaf = 0; } const b = $("#x-play"); if (b) b.textContent = reduceMotion() ? "Siguiente momento" : "Reproducir"; }
+  function kneePassS(a, t, load) {
+    let lo = 0, hi = 1;
+    try {
+      for (let i = 0; i < 30; i++) {
+        const mid = (lo + hi) / 2, q = P.solve(a, t, load, mid);
+        if (q.bar[1] < q.joints.rodilla[1]) lo = mid; else hi = mid;
+      }
+    } catch (e) { if (!(e instanceof P.Infeasible)) throw e; return 0.4; }
+    return (lo + hi) / 2;
+  }
+  function prepareExplain() {
+    ctx.raw = getRaw(); ctx.a = P.fromRaw(ctx.raw); ctx.t = P.TECHNIQUES[S.tech]; ctx.tB = null;
+    computeView();
+    // escala común: mayor momento extensor de pierna en todo el recorrido (así las barras crecen y bajan al mover el recorrido)
+    ctx.peak = 1;
+    for (let i = 0; i <= 20; i++) {
+      try { const m = P.solve(ctx.a, ctx.t, S.load, i / 20).moments; ctx.peak = Math.max(ctx.peak, m.tobillo, m.rodilla, m.cadera); } catch (e) { if (!(e instanceof P.Infeasible)) throw e; }
+    }
+    ctx.moments = ctx.t.exercise === "squat"
+      ? [{ n: "De pie", s: 0 }, { n: "A mitad de bajada", s: 0.5 }, { n: "Fondo", s: 1 }]
+      : [{ n: "Despegue", s: 0 }, { n: "La barra pasa la rodilla", s: kneePassS(ctx.a, ctx.t, S.load) }, { n: "Bloqueo", s: 1 }];
+  }
+  // «Dónde se siente»: solo cuentan las articulaciones de la pierna (la zona lumbar es aproximada y se muestra como referencia).
+  function explainData(r) {
+    const js = ["tobillo", "rodilla", "cadera", "lumbar"], legs = ["tobillo", "rodilla", "cadera"], pos = {};
+    js.forEach((j) => { pos[j] = Math.max(0, r.moments[j]); });
+    const mx = Math.max.apply(null, legs.map((j) => pos[j]));
+    const heat = {}; js.forEach((j) => { heat[j] = Math.min(1, pos[j] / ctx.peak); });
+    return { pos, heat, mx, weak: mx < 0.25 * ctx.peak, top: legs.slice().sort((x, y) => pos[y] - pos[x])[0] };
+  }
+  function ideaText(r, d) {
+    if (d.weak) return "Aquí casi no hay palanca: el cuerpo queda apilado sobre los pies y buena parte del peso lo sostienen los huesos y otras estructuras pasivas, no los músculos.";
+    const j = d.top, arm = r.arms[j] * 100, cm = nf(Math.abs(arm), 0);
+    if (Math.abs(arm) < 4) return "Aquí trabajan " + ZONE[j] + " sobre todo por el peso del propio cuerpo: la barra pasa casi sobre " + ART_SOBRE[j] + " (" + cm + " cm).";
+    const ahead = j === "rodilla" ? arm < 0 : arm > 0;
+    return "La barra queda " + cm + " cm " + (ahead ? "por delante" : "por detrás") + " " + ART_DE[j] + ". Esa distancia es el brazo de palanca: cuanto mayor, más trabajan " + ZONE[j] + ".";
+  }
+  function viewExplain() {
+    const t = P.TECHNIQUES[S.tech];
+    return '<div class="xp"><section class="card xfig"><div class="hdr-row"><span class="eyebrow">' + t.name + ' · ' + nf(S.load, 0) + ' kg</span><span class="eyebrow" id="xhead"></span></div>' +
+      '<p class="xhl" id="xzone"></p>' +
+      '<svg class="fig xf" id="xfig" viewBox="0 0 1000 1900" role="img" aria-label="Figura grande del atleta con el brazo de palanca principal"></svg>' +
+      '<div class="moments" id="moments"></div>' +
+      '<div class="xplay"><button type="button" class="btn" id="x-play">' + (reduceMotion() ? "Siguiente momento" : "Reproducir") + '</button>' +
+      '<button type="button" class="btn" id="x-back">Volver a los números</button></div>' +
+      '<div class="sl"><label for="xsl" class="small"><b>Recorrido: <span id="xslv">' + Math.round(S.s * 100) + '</span> %</b></label><input type="range" id="xsl" min="0" max="1" step="0.005" value="' + S.s + '"></div></section>' +
+      '<section class="card xtxt"><p class="xidea" id="xidea"></p>' +
+      '<div><h3 style="margin-bottom:8px">Dónde se siente la carga</h3><div id="xzones"></div></div>' +
+      '<details><summary>¿Qué es el brazo de palanca?</summary><p class="small muted" style="max-width:60ch;margin-top:6px">Es la distancia horizontal entre la línea de la barra (la plomada punteada) y una articulación. Con el mismo peso, a más distancia la articulación necesita más fuerza muscular para sostenerlo.</p></details>' +
+      '<p class="small muted">Estimación del modelo con las medidas de este atleta. Sirve para explicar el movimiento, no para medirlo. «Dónde se siente» es la demanda de cada articulación según el modelo; los músculos nombrados son los que la producen.</p></section></div>';
+  }
+  function updateExplain() {
+    const t = ctx.t, a = ctx.a;
+    let r = null;
+    try { r = P.solve(a, t, S.load, S.s); } catch (e) { if (!(e instanceof P.Infeasible)) throw e; }
+    const mo = $("#moments");
+    if (mo) mo.innerHTML = ctx.moments.map((m, i) => '<button type="button" data-xm="' + i + '" aria-pressed="' + (Math.abs(S.s - m.s) < 0.012) + '">' + m.n + "</button>").join("");
+    const sv = $("#xslv"); if (sv) sv.textContent = Math.round(S.s * 100);
+    const sl = $("#xsl"); if (sl && Math.abs(parseFloat(sl.value) - S.s) > 1e-6) sl.value = S.s;
+    if (!r) { $("#xfig").innerHTML = ""; $("#xhead").textContent = ""; $("#xzone").textContent = ""; $("#xidea").textContent = "Con estas medidas la postura no es alcanzable en este punto del recorrido."; $("#xzones").innerHTML = ""; return; }
+    const d = explainData(r);
+    const near = ctx.moments.find((m) => Math.abs(S.s - m.s) < 0.012);
+    $("#xhead").textContent = near ? near.n : "Recorrido " + Math.round(S.s * 100) + " %";
+    $("#xzone").textContent = d.weak ? "Poca carga en las piernas" : "Aquí se siente más: " + ZONE_SHORT[d.top].toLowerCase();
+    $("#xidea").textContent = ideaText(r, d);
+    $("#xfig").setAttribute("viewBox", "0 0 " + ctx.view.W + " " + Math.round(ctx.view.YT * 1000 + 70));
+    $("#xfig").innerHTML = drawFigure(r, null, { heat: d.heat, only: !d.weak ? d.top : null, big: true });
+    $("#xzones").innerHTML = ["cadera", "rodilla", "tobillo", "lumbar"].map((j) =>
+      '<div class="zrow' + (j === d.top && !d.weak ? " top" : "") + '"><span class="zn">' + ZONE_SHORT[j] + (j === "lumbar" ? " (aprox.)" : "") + '</span><span class="zb"><i style="width:' + Math.round(d.heat[j] * 100) + '%"></i></span></div>').join("") +
+      '<div class="small muted" style="margin-top:6px">Barra llena = la mayor demanda de las piernas en todo el recorrido. La espalda baja es una referencia aproximada.</div>';
+  }
+  function playExplain() {
+    if (reduceMotion()) {
+      const i = ctx.moments.findIndex((m) => Math.abs(S.s - m.s) < 0.012);
+      S.s = ctx.moments[(i + 1) % ctx.moments.length].s; updateExplain(); return;
+    }
+    if (playRaf) { stopPlay(); return; }
+    if (S.s >= 0.995) S.s = 0;
+    const start = performance.now(), s0 = S.s, dur = 6000 * (1 - s0) + 400;
+    $("#x-play").textContent = "Pausar";
+    const step = (now) => {
+      const k = Math.min(1, (now - start) / dur);
+      S.s = s0 + (1 - s0) * k; updateExplain();
+      if (k < 1 && playRaf) playRaf = requestAnimationFrame(step); else stopPlay();
+    };
+    playRaf = requestAnimationFrame(step);
+  }
+
+  // ---------- render principal
+  function render() {
+    renderSteps();
+    const m = $("#main");
+    stopPlay();
+    m.innerHTML = [viewTech, viewAthlete, viewMeasures, S.explain ? viewExplain : viewResults][S.step]();
+    window.scrollTo(0, 0);
+    if (S.step === 2) { updateClosure(); document.querySelectorAll("[data-m]").forEach((el) => hint(el.dataset.m)); }
+    if (S.step === 1) { hintAthlete(); }
+    if (S.step === 3 && S.explain) { prepareExplain(); updateExplain(); }
+    else if (S.step === 3) { prepareResults(); const ch = $("#chart"); if (ch) ch.innerHTML = chartHTML(); updateResults(); }
+  }
+  function estimMsg(k, v) {
+    if (isFinite(v) || !isFinite(num(S.H))) return "";
+    if (k === "D") return "Se usará una estimación de " + nf(0.143 * num(S.H), 1) + " cm.";
+    if (k === "Wa" && S.tech === "peso_muerto_sumo") return "Si se omite, se usará una estimación de " + nf(WA_EST * num(S.H), 1) + " cm (no medida).";
+    return "";
+  }
+  function hint(k) {
+    const el = $("#h-" + k); if (!el) return;
+    const v = num(S.m[k]);
+    const msg = rangeHint(k, v);
+    el.className = "hint" + (msg ? " warn" : "");
+    el.textContent = msg || estimMsg(k, v);
+  }
+  function hintAthlete() {
+    const hm = $("#h-mass"), hh = $("#h-H");
+    const mv = num(S.mass), hv = num(S.H);
+    if (hm) { const w = isFinite(mv) && (mv < 40 || mv > 160); hm.className = "hint" + (w ? " warn" : ""); hm.textContent = w ? "Fuera de lo habitual (40 a 160 kg)." : ""; }
+    if (hh) { const w = isFinite(hv) && (hv < 140 || hv > 210); hh.className = "hint" + (w ? " warn" : ""); hh.textContent = w ? "Fuera de lo habitual (140 a 210 cm)." : ""; }
+  }
+
+  // ---------- eventos
+  document.addEventListener("click", (e) => {
+    const t = e.target.closest("button"); if (!t) return;
+    if (t.dataset.go != null) { const i = +t.dataset.go; if (i <= S.step) { S.step = i; render(); } }
+    else if (t.dataset.load) { S.load = Math.max(5, (S.load || 0) + +t.dataset.load); const el = $("#load"); if (el) el.value = S.load; save(); renderSteps(); }
+    else if (t.id === "btn-sample") { S.sex = SAMPLE.sex; S.mass = SAMPLE.mass; S.H = SAMPLE.H; S.m = Object.assign({}, SAMPLE.m); S.controls = true; save(); render(); }
+    else if (t.dataset.unit) { S.perKg = t.dataset.unit === "kg"; document.querySelectorAll("[data-unit]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.unit === t.dataset.unit))); const ch = $("#chart"); if (ch) ch.innerHTML = chartHTML(); updateResults(); }
+    else if (t.id === "x-open") { S.explain = true; S.s = 0; render(); }
+    else if (t.id === "x-back") { S.explain = false; render(); }
+    else if (t.id === "x-play") { playExplain(); }
+    else if (t.dataset.xm != null) { stopPlay(); S.s = ctx.moments[+t.dataset.xm].s; updateExplain(); }
+    else if (t.dataset.lv) { S.legView = t.dataset.lv; document.querySelectorAll("[data-lv]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.lv === t.dataset.lv))); updateResults(); }
+    else if (t.dataset.tab) { S.tab = t.dataset.tab; if (S.tab === "wi") S.compare = ""; refreshRight(); }
+    else if (t.id === "wi-reset") { S.wi = {}; refreshRight(); }
+  });
+  document.addEventListener("input", (e) => {
+    const el = e.target;
+    if (el.id === "load") { S.load = num(el.value); save(); renderSteps(); }
+    else if (el.id === "mass") { S.mass = el.value; hintAthlete(); save(); renderSteps(); }
+    else if (el.id === "H") { S.H = el.value; hintAthlete(); save(); renderSteps(); }
+    else if (el.dataset && el.dataset.m) { S.m[el.dataset.m] = el.value; hint(el.dataset.m); if (el.dataset.m === "Lf") hint("dam"); updateClosure(); save(); renderSteps(); }
+    else if (el.id === "xsl") { stopPlay(); S.s = parseFloat(el.value); updateExplain(); }
+    else if (el.id === "sl") { S.s = parseFloat(el.value); $("#slv").textContent = Math.round(S.s * 100); updateResults(); }
+    else if (el.dataset && el.dataset.wi) {
+      S.wi[el.dataset.wi] = parseFloat(el.value);
+      const d = ctrlDefs().find((q) => q.id === el.dataset.wi); const lab = $("#wiv-" + el.dataset.wi); if (d && lab) lab.textContent = d.fmt(S.wi[d.id]);
+      ctx.tB = modifiedTech(); ctx.curveB = null; updateResults();
+    }
+  });
+  document.addEventListener("change", (e) => {
+    const el = e.target;
+    if (el.name === "tech") { S.tech = el.value; S.compare = ""; S.wi = {}; save(); renderSteps(); }
+    else if (el.name === "sex") { S.sex = el.value; save(); render(); }
+    else if (el.id === "ctl") { S.controls = el.checked; save(); render(); }
+    else if (el.id === "cmp") { S.compare = el.value; prepareResults(); updateResults(); }
+  });
+  $("#btn-back").addEventListener("click", () => { if (S.step > 0) { S.explain = false; S.step--; render(); } });
+  $("#btn-next").addEventListener("click", () => {
+    if (S.step === 3) { S.step = 0; S.s = 0; S.explain = false; S.compare = ""; S.wi = {}; S.tab = "res"; S.m = {}; S.mass = ""; S.H = ""; save(); render(); return; }
+    if (stepValid(S.step)) { S.step++; if (S.step === 3) S.s = 0; render(); }
+  });
+
+  restore();
+  render();
+})();
+</script>
