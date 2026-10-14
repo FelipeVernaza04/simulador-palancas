@@ -62,12 +62,16 @@ TECHNIQUES = {
         knee_out_deg=12.0, lam=1.0, d=-0.05, shank_max_deg=40, depth_deg=5, bar_x_offset=0.0),
     "peso_muerto_convencional": Technique(
         "Peso muerto convencional", "deadlift", w_frac=37 / 167, toe_out_deg=15, stance="shoulder", calibrated=True, source=_ESC,
-        knee_out_deg=15.0, f_h0=0.814, eps0=0.12, eps_top=0.02, p=1.6, bar_x_offset=-0.0315,
-        at_bound=("eps0", "eps_top", "p"),
-        ranges=dict(f_h0=(0.745, 0.842), eps0=(0.076, 0.12), eps_top=(-0.014, 0.02), p=(0.835, 1.6), bar_x_offset=(-0.053, 0.017))),
+        # barra vertical sobre el medio pie (bar_x_offset = 0, FIJO por criterio de entrenador; ajuste previo con la barra libre:
+        # -3,2 cm [-5,3, +1,7]); los otros cuatro parámetros se reajustaron con la barra ahí y la rodilla 3D.
+        knee_out_deg=15.0, f_h0=0.8424, eps0=0.12, eps_top=0.0177, p=1.5633, bar_x_offset=0.0,
+        at_bound=("eps0",),
+        ranges=dict(f_h0=(0.794, 0.853), eps0=(0.12, 0.12), eps_top=(0.012, 0.02), p=(1.127, 1.573))),
     "peso_muerto_sumo": Technique(
         "Peso muerto sumo", "deadlift", w_frac=73 / 168, toe_out_deg=45, calibrated=True, source=_ESC,
-        knee_out_deg=30.0, grip_inside=True, f_h0=0.762, eps0=0.12, eps_top=0.02, p=1.6, bar_x_offset=-0.075,
-        at_bound=("eps0", "eps_top", "p"),
-        ranges=dict(f_h0=(0.635, 0.794), eps0=(0.108, 0.12), eps_top=(-0.012, 0.02), p=(0.852, 1.6), bar_x_offset=(-0.082, -0.067))),
+        # barra vertical sobre el medio pie (bar_x_offset = 0, FIJO por criterio de entrenador; el ajuste previo con la barra libre
+        # daba -7,5 cm, sobre el tobillo, que dejaba la barra dentro de la tibia y la rodilla).
+        knee_out_deg=25.0, grip_inside=True, f_h0=0.7762, eps0=0.102, eps_top=-0.0153, p=1.2119, bar_x_offset=0.0,
+        at_bound=(),
+        ranges=dict(f_h0=(0.776, 0.827), eps0=(0.102, 0.107), eps_top=(-0.015, 0.010), p=(1.212, 1.440))),
 }
