@@ -269,7 +269,7 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
 
   let S = {
     step: 0, tech: "peso_muerto_sumo", load: 150, sex: "M", mass: "", H: "", m: {}, controls: false,
-    s: 0, compare: "", perKg: false, tab: "res", wi: {}, legView: "real", explain: false,
+    s: 0, compare: "", perKg: false, tab: "res", wi: {}, legView: "real", plane: "sag", explain: false,
   };
   const ctx = {}; // datos calculados en la pantalla de resultados
 
@@ -590,13 +590,14 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
     const sq = t.exercise === "squat";
     return '<div class="res"><section class="card fig-card"><div class="hdr-row"><h3>' + t.name + '</h3><span class="mono small muted">' + nf(S.load, 0) + " kg</span></div>" +
       '<button type="button" class="btn primary" id="x-open">Explicar con el atleta</button>' +
+      '<div class="unit-tog" role="group" aria-label="Plano de la figura"><button type="button" data-plane="sag" aria-pressed="' + (S.plane === "sag") + '">Lateral</button><button type="button" data-plane="front" aria-pressed="' + (S.plane === "front") + '">Frontal</button></div>' +
       '<svg class="fig" id="fig" viewBox="0 0 1000 1900" role="img" aria-label="Figura de palitos con el brazo de palanca de la barra en cada articulación"></svg>' +
-      '<div class="unit-tog" role="group" aria-label="Vista de las piernas" style="margin-top:8px"><button type="button" data-lv="real" aria-pressed="' + (S.legView === "real") + '">Piernas reales</button><button type="button" data-lv="lat" aria-pressed="' + (S.legView === "lat") + '">Vista lateral</button></div>' +
+      '<div class="unit-tog" id="legtog" role="group" aria-label="Vista de las piernas" style="margin-top:8px"><button type="button" data-lv="real" aria-pressed="' + (S.legView === "real") + '">Piernas reales</button><button type="button" data-lv="lat" aria-pressed="' + (S.legView === "lat") + '">Vista lateral</button></div>' +
       '<p class="small muted" id="fignote" style="margin:6px 0 0"></p>' +
       '<div class="sl"><label for="sl" class="small"><b>Recorrido: <span id="slv">' + Math.round(S.s * 100) + '</span> %</b></label><input type="range" id="sl" min="0" max="1" step="0.005" value="' + S.s + '">' +
       '<div class="sl-ends"><span>' + (sq ? "De pie" : "Barra en el suelo") + "</span><span>" + (sq ? "Fondo" : "Bloqueo") + "</span></div></div>" +
       '<div class="stats" id="stats"></div>' +
-      '<p class="small muted">Los círculos azules marcan tobillo, rodilla y centro estimado de la cadera: más oscuro, mayor momento. Las líneas horizontales con medida son los brazos de palanca de la barra. El punto pequeño en la cadera es el trocánter. Línea punteada naranja: postura comparada.</p></section>' +
+      '<p class="small muted" id="fighelp">' + (S.plane === "front" ? FRONT_HELP : SAG_HELP) + '</p></section>' +
       '<div id="right" style="display:grid;gap:16px;min-width:0;align-content:start">' + rightCol() + "</div></div>";
   }
 
@@ -697,6 +698,74 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
     return g;
   }
 
+  // --- vista frontal (esquemática, solo forma: no calcula momentos)
+  // Usa lo que el modelo ya tiene: ancho de caderas (a.b), separación de tobillos (se deduce de la inclinación psi de la pierna),
+  // ancho de hombros, alturas de rodilla, cadera, hombro y barra. El modelo pone la rodilla en la recta tobillo-cadera, lo que en
+  // pantalla se vería como rodillas más juntas que los pies (parece valgo). Aquí se dibujan las rodillas sobre los pies, que es la
+  // referencia de «buen alineamiento»: es una convención de dibujo, el cálculo de momentos no se toca. Barra y discos van
+  // esquematizados (la barra real mide 2,2 m) y los brazos cuelgan verticales desde los hombros.
+  const FRONT = { HW: 0.72, barHalf: 0.66, plateIn: 0.56, plateOut: 0.62, footW: 0.10, handOut: 0.035 };
+  const SAG_HELP = "Los círculos azules marcan tobillo, rodilla y centro estimado de la cadera: más oscuro, mayor momento. Las líneas horizontales con medida son los brazos de palanca de la barra. El punto pequeño en la cadera es el trocánter. Línea punteada naranja: postura comparada.";
+  const FRONT_HELP = "Vista de frente con las medidas del atleta: separación de los pies, ancho de caderas y de hombros, y la altura de cada punto según el recorrido. Es un dibujo para explicar la postura; no mide ni evalúa la técnica real. Línea punteada naranja: postura comparada.";
+  function drawFront(r, rB) {
+    const a = ctx.a, YT = ctx.view.YT, F = FRONT;
+    const X = (l) => Math.round((l + F.HW) * 1000), Y = (y) => Math.round((YT - y) * 1000);
+    const sh2 = a.shoulder_w / 2, dl = ctx.t.exercise === "deadlift";
+    const poly = (p, cls, st) => '<polyline class="' + cls + '"' + (st ? ' style="' + st + '"' : "") + ' points="' + p.map((q) => X(q[0]) + "," + Y(q[1])).join(" ") + '"/>';
+    const geom = (q) => {
+      const j = q.joints, ha = j.tobillo[1], tn = Math.tan(q.psi_deg * Math.PI / 180);
+      // mitad de la separación de tobillos = mitad de caderas + (altura de cadera sobre el tobillo) * tan(psi)
+      return { ha, hipL: a.b / 2, ankL: a.b / 2 + (j.cadera[1] - ha) * tn, kY: j.rodilla[1], hY: j.cadera[1], sY: j.hombro[1], bY: q.bar[1], hx: j.cadera[0], sx: j.hombro[0] };
+    };
+    const body = (q, tech, cls, isB) => {
+      const g = geom(q), sumo = tech.toe_out_deg > 10;
+      const trunkL = Math.hypot(g.sx - g.hx, g.sY - g.hY) || 1;
+      let headY = g.sY + 0.11 * (g.sY - g.hY) / trunkL;
+      if (!dl) headY = Math.max(headY, g.bY + 0.10); // sentadilla: la barra va en la base del cuello, la cabeza queda por encima
+      const toe = tech.toe_out_deg * Math.PI / 180, fw = (F.footW * Math.cos(toe) + a.Lf * Math.sin(toe)) / 2;
+      const hand = sumo ? sh2 : sh2 + F.handOut; // sumo: agarre por dentro de las piernas; convencional: por fuera de las rodillas
+      let o = "";
+      [-1, 1].forEach((sg) => {
+        o += poly([[sg * g.ankL, g.ha], [sg * g.ankL, g.kY], [sg * g.hipL, g.hY]], cls);
+        o += poly([[sg * (g.ankL - fw), 0], [sg * (g.ankL + fw), 0]], cls, isB ? "" : "stroke-width:14");
+        if (dl) o += poly([[sg * sh2, g.sY], [sg * hand, g.bY]], cls);
+      });
+      o += poly([[-g.hipL, g.hY], [-sh2, g.sY], [sh2, g.sY], [g.hipL, g.hY], [-g.hipL, g.hY]], cls);
+      o += '<circle cx="' + X(0) + '" cy="' + Y(headY) + '" r="' + (isB ? 70 : 78) + '" class="' + cls + '" style="stroke-width:' + (isB ? 10 : 18) + '"/>';
+      return o;
+    };
+    const A = geom(r), W = Math.round(2 * F.HW * 1000);
+    let g = '<line class="floor" x1="0" x2="' + W + '" y1="' + Y(0) + '" y2="' + Y(0) + '"/>';
+    g += '<line class="plumb" x1="' + X(0) + '" x2="' + X(0) + '" y1="0" y2="' + Y(0) + '"/>';
+    // barra y discos (esquemáticos)
+    const bY = Y(A.bY), pr = 0.225;
+    [-1, 1].forEach((sg) => {
+      g += '<rect class="plate" x="' + X(sg < 0 ? -F.plateOut : F.plateIn) + '" y="' + Y(A.bY + pr) + '" width="' + Math.round((F.plateOut - F.plateIn) * 1000) + '" height="' + Math.round(2 * pr * 1000) + '" rx="8"/>';
+    });
+    g += '<line class="seg-a" style="stroke-width:14" x1="' + X(-F.barHalf) + '" x2="' + X(F.barHalf) + '" y1="' + bY + '" y2="' + bY + '"/>';
+    if (rB) g += body(rB, ctx.tB, "seg-b", true);
+    g += body(r, ctx.t, "seg-a", false);
+    // articulaciones (sin color por demanda: esta vista no calcula momentos)
+    [-1, 1].forEach((sg) => {
+      [[A.ankL, A.ha], [A.ankL, A.kY], [A.hipL, A.hY]].forEach((p) => { g += '<circle class="jt" cx="' + X(sg * p[0]) + '" cy="' + Y(p[1]) + '" r="26" fill-opacity="0.4"/>'; });
+      if (dl) g += '<circle cx="' + X(sg * (ctx.t.toe_out_deg > 10 ? sh2 : sh2 + F.handOut)) + '" cy="' + bY + '" r="20" fill="var(--ink)"/>';
+    });
+    // medida: separación de tobillos
+    const yd = Y(0.07), x1 = X(-A.ankL), x2 = X(A.ankL);
+    g += '<line class="dim" x1="' + x1 + '" x2="' + x2 + '" y1="' + yd + '" y2="' + yd + '"/><line class="dim" x1="' + x1 + '" x2="' + x1 + '" y1="' + (yd - 16) + '" y2="' + (yd + 16) + '"/><line class="dim" x1="' + x2 + '" x2="' + x2 + '" y1="' + (yd - 16) + '" y2="' + (yd + 16) + '"/>' +
+      '<text x="' + X(0) + '" y="' + (yd - 20) + '" text-anchor="middle">' + nf(2 * A.ankL * 100, 0) + " cm</text>";
+    const sx = X(-F.HW + 0.04);
+    g += '<line class="dim" x1="' + sx + '" x2="' + (sx + 200) + '" y1="' + (Y(0) + 30) + '" y2="' + (Y(0) + 30) + '"/><text class="lab" x="' + (sx + 210) + '" y="' + (Y(0) + 42) + '">20 cm</text>';
+    return g;
+  }
+  function frontNote(r) {
+    const j = r.joints, tn = Math.tan(r.psi_deg * Math.PI / 180), a = ctx.a;
+    const ank = (a.b / 2 + (j.cadera[1] - j.tobillo[1]) * tn) * 200;
+    const dl = ctx.t.exercise === "deadlift", sumo = ctx.t.toe_out_deg > 10;
+    return "Vista frontal esquemática: pies separados " + nf(ank, 0) + " cm, caderas " + nf(a.b * 100, 0) + " cm y hombros " + nf(a.shoulder_w * 100, 0) + " cm (medidas del atleta). " +
+      "Las rodillas se dibujan sobre los pies y los brazos cuelgan verticales" + (dl ? (sumo ? ", por dentro de las piernas (sumo)" : ", por fuera de las rodillas (convencional)") : "") + ". Barra y discos no están a escala.";
+  }
+
   function niceTicks(lo, hi, n) {
     const span = hi - lo || 1, step0 = span / n, mag = Math.pow(10, Math.floor(Math.log10(step0)));
     const f = step0 / mag, step = (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * mag;
@@ -768,9 +837,12 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
     $d("#infeasible").hidden = !err;
     if (err) { $("#fig").innerHTML = ""; $("#stats").innerHTML = ""; $d("#bars").innerHTML = ""; $d("#diff").innerHTML = ""; $d("#takeaway").textContent = ""; $d("#share").innerHTML = ""; if (S.tab === "wi") $d("#wi-effect").innerHTML = ""; return; }
     if (tB) extendView(tB);
-    $("#fig").setAttribute("viewBox", "0 0 " + ctx.view.W + " " + Math.round(ctx.view.YT * 1000 + 70));
-    $("#fig").innerHTML = drawFigure(r, rB);
-    $("#fignote").textContent = figNote(r);
+    const fr = S.plane === "front", figH = Math.round(ctx.view.YT * 1000 + 70);
+    $("#fig").setAttribute("viewBox", "0 0 " + (fr ? Math.round(2 * FRONT.HW * 1000) : ctx.view.W) + " " + figH);
+    $("#fig").innerHTML = fr ? drawFront(r, rB) : drawFigure(r, rB);
+    $("#fignote").textContent = fr ? frontNote(r) : figNote(r);
+    $("#fighelp").textContent = fr ? FRONT_HELP : SAG_HELP;
+    $("#legtog").style.display = fr ? "none" : "";
     const bA = P.band(ctx.set, t, S.load, S.s);
     const bB = tB ? P.band(ctx.set, tB, S.load, S.s) : null;
     $d("#bars").innerHTML = barsHTML(bA, bB, r);
@@ -942,6 +1014,7 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
     else if (t.id === "x-play") { playExplain(); }
     else if (t.dataset.xm != null) { stopPlay(); S.s = ctx.moments[+t.dataset.xm].s; updateExplain(); }
     else if (t.dataset.lv) { S.legView = t.dataset.lv; document.querySelectorAll("[data-lv]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.lv === t.dataset.lv))); updateResults(); }
+    else if (t.dataset.plane) { S.plane = t.dataset.plane; document.querySelectorAll("[data-plane]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.plane === S.plane))); updateResults(); }
     else if (t.dataset.tab) { S.tab = t.dataset.tab; if (S.tab === "wi") S.compare = ""; refreshRight(); }
     else if (t.id === "wi-reset") { S.wi = {}; refreshRight(); }
   });

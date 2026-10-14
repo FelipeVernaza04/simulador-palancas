@@ -1,6 +1,6 @@
 # Simulador de palancas — sentadilla y peso muerto
 
-Herramienta didáctica para entrenadores: a partir de medidas con cinta métrica de un atleta, simula las palancas (brazos de momento y momentos articulares) en sentadilla (barra alta, baja, frontal) y peso muerto (convencional, sumo), y las muestra con una figura que se mueve con el recorrido. Incluye un **modo explicar** para enseñar el movimiento en vivo y una pestaña «Qué pasaría si» para ver el efecto de ajustes (barra, cadera, postura, profundidad).
+Herramienta didáctica para entrenadores: a partir de medidas con cinta métrica de un atleta, simula las palancas (brazos de momento y momentos articulares) en sentadilla (barra alta, baja, frontal) y peso muerto (convencional, sumo), y las muestra con una figura que se mueve con el recorrido, en vista lateral (con momentos) y en vista frontal (solo forma: separación de pies, caderas y hombros). Incluye un **modo explicar** para enseñar el movimiento en vivo y una pestaña «Qué pasaría si» para ver el efecto de ajustes (barra, cadera, postura, profundidad).
 
 **Prototipo para pruebas piloto. No mide la técnica real del atleta ni sustituye la observación del entrenador.**
 
