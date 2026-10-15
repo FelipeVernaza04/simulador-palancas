@@ -66,6 +66,94 @@ Criterios: la zona principal se elige entre cadera, rodilla y tobillo (momentos 
 ## Cambio en la sentadilla tras la calibración
 La pierna se parametriza ahora por el ángulo del muslo (lineal en s) y no por la altura de la cadera. Los extremos (de pie y fondo) no cambian, así que la calibración es la misma; solo cambia el interior del recorrido, donde antes la cadera saltaba hacia atrás en el primer 5 %.
 
+## Ecuaciones del modelo (`model.py`; `app/model.js` es el mismo modelo en JavaScript)
+Ejes: `x` hacia adelante, `y` hacia arriba, origen en el suelo bajo el medio pie. Modelo sagital 2D, cuasi-estático y simétrico. Momentos extensores positivos, en N·m, para la carga total (ambas piernas). Segmentos: `Ls` tibia, `Lt` muslo, `Ltr` tronco, `La` brazo, `ha` altura del tobillo.
+
+### 1. Geometría de la pierna: rodilla a partir de tobillo y cadera
+**Dos eslabones en 2D (`_two_link`).** Con tobillo A, cadera H y d = |H − A|, la rodilla es la intersección de dos circunferencias de radio `Ls` y `Lt`:
+```
+a = (Ls² − Lt² + d²) / (2d)          distancia del tobillo a la cuerda
+h = √(Ls² − a²)                      desvío de la rodilla respecto de la línea tobillo-cadera
+rodilla = A + a·ê ± h·ê⊥              ê = vector unitario tobillo→cadera
+```
+Se toma la solución anterior (mayor `x`). Si `d > Ls + Lt` o `d < |Ls − Lt|` la postura no es alcanzable y se lanza `Infeasible`.
+
+**Rodilla en 3D (`_knee_3d`).** Las longitudes fijan una circunferencia de posiciones posibles de la rodilla alrededor del eje tobillo-cadera (vector unitario w). La rodilla se coloca en el plano que contiene a w y a la dirección horizontal u = (cos θ, 0, sin θ), con θ = `knee_out_deg`:
+```
+n = (u − (u·w) w) / |u − (u·w) w|
+rodilla = tobillo + a·w + h·n
+```
+Así la rodilla sigue la dirección del pie. Con θ = 0 se reduce al caso 2D.
+
+### 2. Momentos articulares (`_moments`)
+Para cada articulación en la posición horizontal x_j:
+```
+Cadera, tobillo, lumbar (peso por DELANTE de la articulación = extensor):
+    M_j = g · cos ψ · Σ m_i · (x_i − x_j)
+Rodilla (peso por DETRÁS de la rodilla = extensor):
+    M_k = g · cos ψ · Σ m_i · (x_k − x_i)
+```
+- **Masas que cuentan:** cadera = tronco + cabeza + brazos + barra; rodilla = lo anterior + muslos; tobillo = lo anterior + tibias; lumbar = igual que cadera, pero respecto del punto lumbar a 10 % de `Ltr` sobre la cadera (sin `cos ψ`).
+- **Centros de masa:** `x_tronco = x_h + f·Ltr·sin φ` (φ = inclinación del tronco respecto de la vertical); `x_muslo = x_h + f_muslo·(x_k − x_h)`; `x_tibia = x_k + f_tibia·(x_a − x_k)`.
+- **cos ψ:** ψ es la inclinación del plano de la pierna (postura ancha); solo se conserva la proyección sagital del momento.
+- **Brazos de momento de la barra:** `cadera = x_barra − x_cadera`; `rodilla = x_rodilla − x_barra`; `tobillo = x_barra − x_tobillo`. Las contribuciones de la barra y del cuerpo se informan por separado.
+- **Reparto:** `share_j = |M_j| / (|M_cadera| + |M_rodilla| + |M_tobillo|)`.
+
+**Equilibrio:**
+```
+CoP = Σ m_i x_i / Σ m_i                      (todas las masas, con los pies)
+OK si  −½·Lf·cos(toe_out) ≤ CoP ≤ +½·Lf·cos(toe_out)
+```
+
+### 3. Sentadilla (`solve_squat`)
+El parámetro de recorrido `s` va de 0 (de pie) a 1 (fondo):
+```
+ángulo del muslo con la vertical:  β  = φ0 + s·[(π/2 + α) − φ0]      α = depth_deg
+inclinación de la tibia:           φs = φ0 + s·(φmax − φ0)
+rodilla (plano de la pierna):      u_k = x_a + Ls·sin φs ,  v_k = Ls·cos φs
+cadera (plano de la pierna):       u_h = u_k − Lt·sin β ,   v_h = v_k + Lt·cos β
+altura real de la cadera:          y_p = √(v_h² − c²)       c = desfase lateral tobillo-cadera
+inclinación del plano de la pierna: ψ = atan2(c, y_p)
+```
+`c = (w − b)/2`, con `w` el ancho de postura y `b` el ancho de cadera.
+
+**Tronco a partir de la barra.** La barra está a A = λ·`Ltr` a lo largo del tronco y B = d perpendicular a él:
+```
+x_barra = u_h + A sin φ − B cos φ = u_h + R sin(φ − δ)      R = √(A² + B²) , δ = atan2(B, A)
+x_barra = x_b  →  φ = δ + asin( (x_b − u_h) / R )
+```
+Si |x_b − u_h| > R no hay inclinación de tronco que ponga la barra ahí y se lanza `Infeasible`.
+
+### 4. Peso muerto (`solve_deadlift`)
+La variable independiente es la **posición x de la rodilla**, no la altura de la cadera:
+```
+altura de la barra:   y_b(s)   = r_disco + s·(y_b,top − r_disco)
+desfase del hombro:   ε(s)     = ε0 + (ε_top − ε0)·s
+x de la barra:        x_bar(s) = x_b + (x_top − x_b)·s^p          (p = BAR_RETURN_P = 2)
+hombro:               x_sh = x_bar + ε(s) ;  y_sh = y_b + √(La² − e²)
+rodilla objetivo:     kx(s) = kx_top + (kx_0 − kx_top)·(1 − s)^knee_p
+```
+La cadera es `H = hombro − Ltr·(sin φ, cos φ)`. El ángulo del tronco φ se obtiene por búsqueda de raíz (barrido y 60 bisecciones) de modo que la rodilla 3D caiga en `kx(s)`.
+
+**Bloqueo.** La altura de la pierna recta sale de su longitud:
+```
+v_top  = √((Ls + Lt)² − (u_top − x_a)²)
+y_h,top = h_a + √(v_top² − c²)
+```
+
+**Holgura de la barra.** La barra no puede atravesar la espinilla ni la rótula. `_leg_gap` da la distancia de la barra a la cara anterior de la pierna, con un radio de espinilla que crece de forma cúbica hasta la rótula:
+```
+r(t) = SHIN_FRONT + (KNEE_FRONT − SHIN_FRONT)·t³
+```
+Si `gap < BAR_RADIUS`, la barra se adelanta por bisección (`_bar_x_clearing_leg`); se itera hasta 12 veces porque la altura del hombro depende de la inclinación del brazo.
+
+### 5. Qué es aproximación
+- `KNEE_FRONT`, `SHIN_FRONT`, `THIGH_FRONT`, `BAR_TO_HIP` y `LUMBAR_MU` son aproximaciones, marcadas como tales en el código.
+- Cuasi-estático: subestima los picos de momento.
+- Solo plano sagital: sin momentos frontales en sumo.
+
+La calibración (siguiente sección) minimiza χ² = Σ ((modelo_i − μ_i) / DE_i)² sobre los objetivos publicados, más penalizaciones blandas de equilibrio y un a priori sobre `hx`.
+
 ## Calibración (método)
 Fuentes: Escamilla y cols. (2000) — peso muerto convencional y sumo, 40 powerlifters hombres (stance, ángulos de rodilla/cadera/tronco, brazos de momento, recorrido de la barra); Swinton y cols. (2012) — sentadilla barra alta y baja, 12 powerlifters hombres al 70 % 1RM; Frontiers (2025) — momentos pico por pierna, usados solo como razones/diferencias de validación.
 Se construyó un atleta «proxy» por estudio (estatura y masa publicadas, proporciones de la muestra de referencia). Las cuatro técnicas se ajustaron **a la vez** minimizando χ² entre modelo y objetivos publicados (peso = 1/DE), con:
