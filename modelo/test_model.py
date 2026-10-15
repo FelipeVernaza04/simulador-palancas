@@ -5,7 +5,7 @@ import pytest
 
 from anthropometry import (SAMPLE_MALE, from_raw, closure_checks, total_mass_check, mass_points, G, DE_LEVA)
 from techniques import TECHNIQUES
-from model import solve, Infeasible, KNEE_CLEAR, _knee_3d, _two_link
+from model import solve, Infeasible, KNEE_CLEAR, SHIN_FRONT, BAR_RADIUS, _knee_3d, _two_link, _seg_dist
 from uncertainty import draw_perturbations, monte_carlo
 
 A = from_raw(SAMPLE_MALE)
@@ -90,6 +90,42 @@ def test_bar_never_through_the_knee(key, athlete):
             continue
         d = math.hypot(r.bar[0] - r.joints["rodilla"][0], r.bar[1] - r.joints["rodilla"][1])
         assert d >= KNEE_CLEAR - 1e-6, (i / 40, d)
+
+
+@pytest.mark.parametrize("key", ["peso_muerto_convencional", "peso_muerto_sumo"])
+def test_bar_path_is_smooth_and_stays_out_of_the_shin(key):
+    """El desvío de la barra alrededor de la rodilla no tiene esquinas (la circunferencia sola daba 54-67° respecto de la vertical;
+    ahora ~44°, la inclinación del propio muslo) y la barra nunca queda dentro de la espinilla."""
+    t = TECHNIQUES[key]
+    prev, worst = None, 0.0
+    for i in range(101):
+        r = solve(A, t, 150, i / 100)
+        d, _ = _seg_dist(r.bar[0], r.bar[1], r.joints["tobillo"], r.joints["rodilla"])
+        assert d >= SHIN_FRONT + BAR_RADIUS - 1e-6, (i / 100, d)
+        if prev is not None:
+            worst = max(worst, abs(math.degrees(math.atan2(r.bar[0] - prev[0], r.bar[1] - prev[1]))))
+        prev = r.bar
+    assert worst < 50.0, worst
+
+
+@pytest.mark.parametrize("key", ["peso_muerto_convencional", "peso_muerto_sumo"])
+def test_deadlift_is_solvable_and_continuous_into_lockout(key):
+    """Todo s en [0, 1] tiene solución (antes había un hueco en s ~ 0,985-0,994) y el tronco y la cadera llegan al bloqueo sin
+    saltos: la solución con la rodilla clavada en su posición de pierna recta saltaba ~7° y ~6 cm al llegar a s = 1."""
+    t = TECHNIQUES[key]
+    prev, hip_top = None, None
+    n = 400
+    for i in range(n + 1):
+        r = solve(A, t, 150, i / n)           # no debe lanzar Infeasible
+        cur = (r.trunk_deg, r.joints["cadera"][0], r.joints["cadera"][1])
+        if prev is not None:
+            assert abs(cur[0] - prev[0]) < 5.5, (i / n, cur[0], prev[0])        # tronco: <= 4,5° por paso de 1/400
+            assert abs(cur[1] - prev[1]) < 0.045, (i / n, cur[1], prev[1])      # cadera horizontal: <= 3,8 cm por paso
+        prev = cur
+    # la cadera nunca queda por encima de su altura al bloqueo
+    top = solve(A, t, 150, 1.0).joints["cadera"][1]
+    for i in range(n + 1):
+        assert solve(A, t, 150, i / n).joints["cadera"][1] <= top + 1e-9
 
 
 def test_sumo_knees_track_over_the_feet_and_come_in_as_the_legs_extend():

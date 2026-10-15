@@ -16,19 +16,21 @@ from model import solve, Infeasible
 from calibrate import (proxy_athlete, incl_3d, knee_flexion_inplane, knee_passing_s, DL, DL_LABELS, SQ, SQ_LABELS)
 
 HX_PRIOR_SD = 0.03
-DL_BOUNDS = ([0.35, -0.02, -0.08, 0.6, -0.25], [0.90, 0.12, 0.02, 1.6, 0.10])
+DL_BOUNDS = ([-0.10, -0.02, -0.08, 0.5, -0.25], [0.12, 0.15, 0.02, 8.0, 0.10])
+DL_BAR_FIXED = 0.0   # barra vertical sobre el medio pie en peso muerto (criterio de entrenador); None = libre
+DL_KNEE0_FIXED = 0.0762   # rodilla 3 pulgadas (7,6 cm) por delante de la barra al despegar (criterio de entrenador); None = libre
 SQ_BOUNDS = ([10.0, -15.0, -0.15, 0.85, 0.03], [50.0, 25.0, 0.15, 1.05, 0.10])
 HX_BOUNDS = ([-0.05], [0.10])
 LAYOUT = [("peso_muerto_convencional", "dl", 5), ("peso_muerto_sumo", "dl", 5),
           ("sentadilla_barra_alta", "sq", 5), ("sentadilla_barra_baja", "sq", 5)]
-DL_NAMES = ("f_h0", "eps0", "eps_top", "p", "bar_x_offset")
+DL_NAMES = ("knee0", "eps0", "eps_top", "knee_p", "bar_x_offset")
 SQ_NAMES = ("shank_max_deg", "depth_deg", "bar_x_offset", "lam", "d")
 
 
 def tech_from(key, kind, x):
     if kind == "dl":
         d = DL[key]
-        return replace(TECHNIQUES[key], w_frac=d["w_frac"], toe_out_deg=d["toe"], f_h0=x[0], eps0=x[1], eps_top=x[2], p=x[3],
+        return replace(TECHNIQUES[key], w_frac=d["w_frac"], toe_out_deg=d["toe"], knee0=x[0], eps0=x[1], eps_top=x[2], knee_p=x[3],
                        bar_x_offset=x[4], calibrated=True)
     return replace(TECHNIQUES[key], w_frac=SQ[key]["w_frac"], bar_x_mode="midfoot", shank_max_deg=x[0], depth_deg=x[1],
                    bar_x_offset=x[2], lam=x[3], d=x[4], calibrated=True)
@@ -62,7 +64,7 @@ def predict_from_technique(key):
     from anthropometry import DEFAULT_HIP_AP_OFFSET
     t = TECHNIQUES[key]
     kind = "dl" if t.exercise == "deadlift" else "sq"
-    x = ([t.f_h0, t.eps0, t.eps_top, t.p, t.bar_x_offset] if kind == "dl"
+    x = ([t.knee0, t.eps0, t.eps_top, t.knee_p, t.bar_x_offset] if kind == "dl"
          else [t.shank_max_deg, t.depth_deg, t.bar_x_offset, t.lam, t.d])
     p = predict(key, kind, x, DEFAULT_HIP_AP_OFFSET)
     tb = table(key, kind)
@@ -123,6 +125,10 @@ def bounds():
     for key, kind, n in LAYOUT:
         b = DL_BOUNDS if kind == "dl" else SQ_BOUNDS
         bl, bh = list(b[0]), list(b[1])
+        if kind == "dl" and DL_BAR_FIXED is not None:
+            bl[4], bh[4] = DL_BAR_FIXED - 1e-4, DL_BAR_FIXED + 1e-4
+        if kind == "dl" and DL_KNEE0_FIXED is not None:
+            bl[0], bh[0] = DL_KNEE0_FIXED - 1e-4, DL_KNEE0_FIXED + 1e-4
         if key in SQ_FIXED:
             lam, d = SQ_FIXED[key]
             bl[3], bh[3], bl[4], bh[4] = lam - 1e-4, lam + 1e-4, d - 1e-4, d + 1e-4

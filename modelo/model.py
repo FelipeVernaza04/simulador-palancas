@@ -13,6 +13,8 @@ LUMBAR_MU = 0.10   # punto lumbar a esta fracción de Ltr sobre la cadera (APROX
 KNEE_FRONT = 0.05  # centro articular de la rodilla -> cara anterior de la rótula, con partes blandas (m) (APROXIMACIÓN)
 BAR_RADIUS = 0.014 # barra olímpica de 28 mm
 KNEE_CLEAR = KNEE_FRONT + BAR_RADIUS   # distancia mínima centro de barra - centro de rodilla en el plano sagital
+SHIN_FRONT = 0.02  # eje tobillo-rodilla -> cara anterior de la espinilla (cresta tibial casi subcutánea) (m) (APROXIMACIÓN)
+THIGH_FRONT = 0.07 # eje rodilla-cadera -> cara anterior del muslo a media altura del muslo (m) (APROXIMACIÓN)
 
 
 class Infeasible(Exception):
@@ -82,6 +84,38 @@ def _knee_3d(a: Anthro, ankle, hip, out_deg):
     nn = math.sqrt(sum(c * c for c in n))
     n = [c / nn for c in n] if nn > 1e-9 else [1.0, 0.0, 0.0]
     return tuple(ankle[i] + aa * w[i] + h * n[i] for i in range(3))
+
+
+def _seg_dist(px, py, a_, b_):
+    """Distancia del punto (px, py) al segmento a_-b_ y parámetro t de su pie sobre el segmento (0 en a_, 1 en b_)."""
+    dx, dy = b_[0] - a_[0], b_[1] - a_[1]
+    t = max(0.0, min(1.0, ((px - a_[0]) * dx + (py - a_[1]) * dy) / (dx * dx + dy * dy)))
+    return math.hypot(px - a_[0] - t * dx, py - a_[1] - t * dy), t
+
+
+def _leg_gap(px, py, ankle, knee, hip):
+    """Distancia (m) del punto sagital (px, py) a la cara anterior de la pierna: espinilla que engrosa hasta la rótula (radio
+    SHIN_FRONT -> KNEE_FRONT, cúbica) y mitad inferior del muslo (KNEE_FRONT -> THIGH_FRONT). Es continua, sin esquinas, y en la
+    rodilla vale distancia al centro - KNEE_FRONT. No incluye el muslo alto: ahí la barra va con las manos al costado del muslo."""
+    d, t = _seg_dist(px, py, ankle, knee)
+    gap = d - (SHIN_FRONT + (KNEE_FRONT - SHIN_FRONT) * t ** 3)
+    mid = (0.5 * (knee[0] + hip[0]), 0.5 * (knee[1] + hip[1]))
+    d, t = _seg_dist(px, py, knee, mid)
+    return min(gap, d - (KNEE_FRONT + (THIGH_FRONT - KNEE_FRONT) * t))
+
+
+def _bar_x_clearing_leg(x0, y_b, ankle, knee, hip):
+    """Menor x >= x0 con la barra (centro en (x, y_b), radio BAR_RADIUS) fuera de la pierna: la barra solo se adelanta."""
+    if _leg_gap(x0, y_b, ankle, knee, hip) >= BAR_RADIUS:
+        return x0
+    lo, hi = x0, x0 + 0.15
+    for _ in range(22):      # precisión 0,15 / 2^22 = 4e-8 m, bajo la tolerancia del lazo que la llama
+        mid = 0.5 * (lo + hi)
+        if _leg_gap(mid, y_b, ankle, knee, hip) >= BAR_RADIUS:
+            hi = mid
+        else:
+            lo = mid
+    return hi
 
 
 def _moments(a: Anthro, mb: float, psi: float, x_a, x_k, x_h, hip, shoulder, trunk_phi, bar_x, arms_x, toe_out_deg):
@@ -194,46 +228,115 @@ def solve_squat(a: Anthro, t: Technique, load_kg: float, s: float) -> Result:
 
 
 def solve_deadlift(a: Anthro, t: Technique, load_kg: float, s: float) -> Result:
+    """Peso muerto. El recorrido de la pierna lo fija la posición horizontal de la rodilla (como la sentadilla fija la inclinación de
+    la tibia): `knee0` es la rodilla respecto de la barra al despegar (+ = rodilla por delante de la barra) y la rodilla llega al
+    bloqueo con la pierna recta; entre ambos, kx(s) = kx_top + (kx_0 - kx_top) (1 - s)^knee_p. La altura de la cadera es consecuencia:
+    se busca (bisección) la altura de cadera, con el hombro donde lo pone la ficha, que deja la rodilla en kx(s). Antes la altura de
+    la cadera era el parámetro y la rodilla quedaba casi quieta (la tibia cambiaba ~3° en todo el tirón)."""
     c = _stance_c(a, t)
     x_a, h_a = -a.dam, a.ha
     x_b = t.bar_x_offset
+    z_h = a.b / 2.0
+    z_a = z_h + c
     u_top = x_b + t.eps_top
     v_top = _clampsqrt((a.Ls + a.Lt) ** 2 - (u_top - x_a) ** 2)
     yp_top = _clampsqrt(v_top ** 2 - c ** 2)
-    yp0 = t.f_h0 * yp_top
-    yp = yp0 + (yp_top - yp0) * (s ** t.p)
-    eps = t.eps0 + (t.eps_top - t.eps0) * s
-
     y_h_top = h_a + yp_top
     y_b_top = y_h_top + a.Ltr - _clampsqrt(a.La ** 2 - t.eps_top ** 2)
     y_b = t.plate_radius + s * (y_b_top - t.plate_radius)
-
-    y_h = h_a + yp
-    psi = math.atan2(c, yp)
-    z_h = a.b / 2.0
-    z_a = z_h + c
+    eps = t.eps0 + (t.eps_top - t.eps0) * s
     x_sh = x_b + eps      # el hombro queda donde lo pone la ficha de técnica (hombro por delante de la barra en `eps`)
 
-    # La barra no puede atravesar la rodilla: si su centro pasa a menos de KNEE_CLEAR del centro de la rodilla, la barra se adelanta
-    # lo justo respecto del cuerpo (el hombro, la cadera y la rodilla no se mueven: los brazos se inclinan un poco hacia adelante,
-    # que es lo que hace un levantador real al rodear las rodillas). Con la rodilla abierta en la dirección del pie casi no actúa;
-    # es una salvaguarda para técnicas o medidas con poco margen. La altura del hombro depende de la inclinación del brazo, y con
-    # ella la cadera y la rodilla, así que se itera (converge en 2-3 pasos: el desplazamiento de la rodilla es de segundo orden).
+    # rodilla objetivo: al bloqueo es la de la pierna recta (hombro y cadera en u_top)
+    kx_top = _knee_3d(a, (x_a, h_a, z_a), (u_top, y_h_top, z_h), t.knee_out_deg)[0]
+    kx_0 = x_b + t.knee0
+    kx_t = kx_top + (kx_0 - kx_top) * (1.0 - s) ** t.knee_p
+
+    def hip_for(y_sh):
+        """Cadera (x, y) con el hombro en (x_sh, y_sh) y la rodilla en x = kx_t, y la rodilla 3D resultante.
+
+        La incógnita es la inclinación del tronco phi respecto de la vertical (cadera = hombro - Ltr (sin phi, cos phi)), no la altura
+        de la cadera: con el tronco casi vertical la altura es hipersensible (un milímetro de altura mueve la cadera centímetros) y
+        el rango de alturas que acotaba la búsqueda dejaba fuera la raíz justo antes del bloqueo. En phi la raíz está bien
+        condicionada hasta phi = 0, y el límite superior es el alcance de la pierna (pierna recta)."""
+        def at(phi):
+            xh, yh = x_sh - a.Ltr * math.sin(phi), y_sh - a.Ltr * math.cos(phi)
+            kn = _knee_3d(a, (x_a, h_a, z_a), (xh, yh, z_h), t.knee_out_deg)
+            if kn[1] > yh:   # en peso muerto la cadera queda sobre la rodilla (muslo por encima de la horizontal)
+                raise Infeasible("el muslo quedaría bajo la horizontal")
+            return xh, yh, kn
+
+        def f(phi):          # kx - kx_t: decrece con phi (la cadera sube y se retrasa)
+            return at(phi)[2][0] - kx_t
+
+        lo = None
+        N, phi_cap = 48, 1.4
+        for i in range(N + 1):
+            phi = phi_cap * i / N
+            try:
+                fv = f(phi)
+            except Infeasible:
+                if lo is None:
+                    continue          # cadera demasiado baja: el muslo bajo la horizontal
+                # se salió del alcance de la pierna: el borde (pierna recta) es el último phi alcanzable
+                a_, b_ = lo[0], phi
+                for _ in range(50):
+                    mid = 0.5 * (a_ + b_)
+                    try:
+                        f(mid)
+                        a_ = mid
+                    except Infeasible:
+                        b_ = mid
+                fe = f(a_)
+                if fe > 1e-6:
+                    raise Infeasible("la rodilla no alcanza esa posición con estas medidas")
+                lo, hi = (lo[0], lo[1]), (a_, fe)
+                break
+            if abs(fv) < 1e-12:
+                return at(phi)
+            if lo is not None and (lo[1] > 0) != (fv > 0):
+                hi = (phi, fv)
+                break
+            lo = (phi, fv)
+        else:
+            raise Infeasible("la rodilla no alcanza esa posición con estas medidas")
+        a_, fa, b_ = lo[0], lo[1], hi[0]
+        for _ in range(60):
+            mid = 0.5 * (a_ + b_)
+            try:
+                fm = f(mid)
+            except Infeasible:
+                b_ = mid
+                continue
+            if (fm > 0) == (fa > 0):
+                a_, fa = mid, fm
+            else:
+                b_ = mid
+        phi = 0.5 * (a_ + b_)
+        # La cadera no sube por encima de su altura al bloqueo. Con la rodilla clavada en su posición de pierna recta, justo antes del
+        # bloqueo la raíz estaría con la cadera unos mm más arriba y ~6 cm atrás (tronco inclinado), y al llegar a s = 1 la solución
+        # saltaría a la otra rama (tronco vertical, cadera adelante). En su lugar la cadera se queda a esa altura y la rodilla es
+        # consecuencia: el tronco llega a la vertical de forma continua.
+        if y_sh - a.Ltr * math.cos(phi) > y_h_top:
+            phi = math.acos(min(1.0, (y_sh - y_h_top) / a.Ltr))
+        return at(phi)
+
+    # La barra no puede atravesar la pierna (espinilla, rótula, muslo bajo: ver _leg_gap): si la vertical la cruza, la barra se
+    # adelanta lo justo respecto del cuerpo (hombro, cadera y rodilla no se mueven: los brazos se inclinan un poco hacia adelante).
+    # El contorno es continuo (la espinilla se une a la rótula y esta al muslo con pendientes suaves), así que el desvío no tiene
+    # esquinas. La altura del hombro depende de la inclinación del brazo, y con ella la cadera, así que se itera (la rodilla en x
+    # ya es kx_t).
     xbe = x_b
     for _ in range(12):
         e = x_sh - xbe
         y_sh = y_b + _clampsqrt(a.La ** 2 - e ** 2)
-        dy = y_sh - y_h
-        if dy < 0 or dy > a.Ltr + 1e-9:
-            raise Infeasible("el hombro no es alcanzable desde esa altura de cadera")
-        x_h = x_sh - _clampsqrt(a.Ltr ** 2 - dy ** 2)
-        kx, ky, kz = _knee_3d(a, (x_a, h_a, z_a), (x_h, y_h, z_h), t.knee_out_deg)
-        dyk = abs(y_b - ky)
-        need = kx + math.sqrt(KNEE_CLEAR ** 2 - dyk ** 2) if dyk < KNEE_CLEAR else -math.inf
+        x_h, y_h, (kx, ky, kz) = hip_for(y_sh)
+        need = _bar_x_clearing_leg(xbe, y_b, (x_a, h_a), (kx, ky), (x_h, y_h))
         if need <= xbe + 1e-7:
             break
         xbe = need
-    phi = math.atan2(x_sh - x_h, dy)
+    psi = math.atan2(c, y_h - h_a)
+    phi = math.atan2(x_sh - x_h, y_sh - y_h)
     hip = (x_h, y_h)
     knee = (kx, ky)
     shoulder = (x_sh, y_sh)

@@ -31,10 +31,10 @@ class Technique:
     trunk_top_deg: float = 0.0
     bar_x_offset: float = 0.0     # posición horizontal de la barra respecto al medio pie (m, + = adelante)
     # --- peso muerto ---
-    f_h0: float = 0.55       # altura inicial de cadera sobre el tobillo / altura final
+    knee0: float = 0.03      # rodilla respecto de la barra al despegar (m, + = rodilla por delante de la barra)
+    knee_p: float = 3.0      # forma del recorrido de la rodilla: kx(s) = kx_top + (kx_0 - kx_top)(1-s)^knee_p; mayor = la rodilla vuelve antes
     eps0: float = 0.05       # hombro por delante de la barra al inicio (m)
     eps_top: float = -0.03   # hombro por detrás de la barra arriba (m)
-    p: float = 1.0           # sincronía: <1 cadera sube antes, >1 cadera se retrasa
     plate_radius: float = 0.225
     # --- rodilla en 3D (ver model._knee_3d) ---
     knee_out_deg: float = 0.0     # dirección horizontal en que se abre la rodilla, hacia afuera respecto al eje x (0 = hacia adelante).
@@ -64,14 +64,14 @@ TECHNIQUES = {
         "Peso muerto convencional", "deadlift", w_frac=37 / 167, toe_out_deg=15, stance="shoulder", calibrated=True, source=_ESC,
         # barra vertical sobre el medio pie (bar_x_offset = 0, FIJO por criterio de entrenador; ajuste previo con la barra libre:
         # -3,2 cm [-5,3, +1,7]); los otros cuatro parámetros se reajustaron con la barra ahí y la rodilla 3D.
-        knee_out_deg=15.0, f_h0=0.8424, eps0=0.12, eps_top=0.0177, p=1.5633, bar_x_offset=0.0,
+        knee_out_deg=15.0, knee0=0.03, knee_p=3.0, eps0=0.12, eps_top=0.0177, bar_x_offset=0.0,
         at_bound=("eps0",),
-        ranges=dict(f_h0=(0.794, 0.853), eps0=(0.12, 0.12), eps_top=(0.012, 0.02), p=(1.127, 1.573))),
+        ranges={}),
     "peso_muerto_sumo": Technique(
         "Peso muerto sumo", "deadlift", w_frac=73 / 168, toe_out_deg=45, calibrated=True, source=_ESC,
         # barra vertical sobre el medio pie (bar_x_offset = 0, FIJO por criterio de entrenador; el ajuste previo con la barra libre
         # daba -7,5 cm, sobre el tobillo, que dejaba la barra dentro de la tibia y la rodilla).
-        knee_out_deg=25.0, grip_inside=True, f_h0=0.7762, eps0=0.102, eps_top=-0.0153, p=1.2119, bar_x_offset=0.0,
+        knee_out_deg=25.0, grip_inside=True, knee0=0.03, knee_p=3.0, eps0=0.102, eps_top=-0.0153, bar_x_offset=0.0,
         at_bound=(),
-        ranges=dict(f_h0=(0.776, 0.827), eps0=(0.102, 0.107), eps_top=(-0.015, 0.010), p=(1.212, 1.440))),
+        ranges={}),
 }

@@ -237,6 +237,8 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
   const KNEE_FRONT = 0.05;  // centro articular de la rodilla -> cara anterior de la rótula, con partes blandas (m) (aproximación)
   const BAR_RADIUS = 0.014; // barra olímpica de 28 mm
   const KNEE_CLEAR = KNEE_FRONT + BAR_RADIUS; // distancia mínima centro de barra - centro de rodilla en el plano sagital
+  const SHIN_FRONT = 0.02;  // eje tobillo-rodilla -> cara anterior de la espinilla (cresta tibial casi subcutánea) (m) (aproximación)
+  const THIGH_FRONT = 0.07; // eje rodilla-cadera -> cara anterior del muslo a media altura del muslo (m) (aproximación)
 
   class Infeasible extends Error {}
 
@@ -300,7 +302,7 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
 
   // ---------------------------------------------------------------- técnicas (calibradas con literatura; ver README)
   const BASE = { calibrated: false, source: "", ranges: {}, at_bound: [], lam: 1.0, d: 0.06, shank_top_deg: 3.0, shank_max_deg: 35.0,
-    depth_deg: 5.0, bar_x_mode: "midfoot", trunk_top_deg: 0.0, bar_x_offset: 0.0, f_h0: 0.55, eps0: 0.05, eps_top: -0.03, p: 1.0, plate_radius: 0.225, stance: "frac",
+    depth_deg: 5.0, bar_x_mode: "midfoot", trunk_top_deg: 0.0, bar_x_offset: 0.0, knee0: 0.03, knee_p: 3.0, eps0: 0.05, eps_top: -0.03, plate_radius: 0.225, stance: "frac",
     toe_out_deg: 0, knee_out_deg: 0, grip_inside: false };
   function T(o) { return Object.assign({}, BASE, o); }
   const TECHNIQUES = {
@@ -343,6 +345,34 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
     const nn = Math.hypot(n[0], n[1], n[2]);
     n = nn > 1e-9 ? [n[0] / nn, n[1] / nn, n[2] / nn] : [1, 0, 0];
     return [A[0] + aa * w[0] + h * n[0], A[1] + aa * w[1] + h * n[1], A[2] + aa * w[2] + h * n[2]];
+  }
+
+  /** Distancia del punto (px, py) al segmento a-b y parámetro t de su pie (0 en a, 1 en b). Espejo de model._seg_dist. */
+  function segDist(px, py, a, b) {
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const t = Math.max(0, Math.min(1, ((px - a[0]) * dx + (py - a[1]) * dy) / (dx * dx + dy * dy)));
+    return [Math.hypot(px - a[0] - t * dx, py - a[1] - t * dy), t];
+  }
+
+  /** Distancia (m) del punto sagital a la cara anterior de la pierna: espinilla que engrosa hasta la rótula (SHIN_FRONT ->
+   * KNEE_FRONT, cúbica) y mitad inferior del muslo (KNEE_FRONT -> THIGH_FRONT). Continua y sin esquinas. Espejo de model._leg_gap. */
+  function legGap(px, py, ankle, knee, hip) {
+    let [d, t] = segDist(px, py, ankle, knee);
+    const gap = d - (SHIN_FRONT + (KNEE_FRONT - SHIN_FRONT) * t ** 3);
+    const mid = [0.5 * (knee[0] + hip[0]), 0.5 * (knee[1] + hip[1])];
+    [d, t] = segDist(px, py, knee, mid);
+    return Math.min(gap, d - (KNEE_FRONT + (THIGH_FRONT - KNEE_FRONT) * t));
+  }
+
+  /** Menor x >= x0 con la barra (centro en (x, yB), radio BAR_RADIUS) fuera de la pierna. Espejo de model._bar_x_clearing_leg. */
+  function barXClearingLeg(x0, yB, ankle, knee, hip) {
+    if (legGap(x0, yB, ankle, knee, hip) >= BAR_RADIUS) return x0;
+    let lo = x0, hi = x0 + 0.15;
+    for (let it = 0; it < 22; it++) {
+      const mid = 0.5 * (lo + hi);
+      if (legGap(mid, yB, ankle, knee, hip) >= BAR_RADIUS) hi = mid; else lo = mid;
+    }
+    return hi;
   }
 
   function momentsOf(a, mb, psi, xa, xk, xh, shoulder, phi, barX, armsX, toeOut) {
@@ -420,35 +450,88 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
   }
 
   function solveDeadlift(a, t, load, s) {
+    // El recorrido de la pierna lo fija la posición horizontal de la rodilla (knee0 respecto de la barra al despegar, pierna recta al
+    // bloqueo, forma (1-s)^knee_p); la altura de la cadera sale por bisección. Espejo de model.solve_deadlift.
     const c = stanceC(a, t), xa = -a.dam, ha = a.ha, xb = t.bar_x_offset;
+    const zH = a.b / 2, zA = zH + c;
     const uTop = xb + t.eps_top;
     const vTop = csqrt((a.Ls + a.Lt) ** 2 - (uTop - xa) ** 2);
     const ypTop = csqrt(vTop * vTop - c * c);
-    const yp0 = t.f_h0 * ypTop;
-    const yp = yp0 + (ypTop - yp0) * Math.pow(s, t.p);
-    const eps = t.eps0 + (t.eps_top - t.eps0) * s;
     const yHTop = ha + ypTop;
     const yBTop = yHTop + a.Ltr - csqrt(a.La * a.La - t.eps_top * t.eps_top);
     const yB = t.plate_radius + s * (yBTop - t.plate_radius);
-    const yH = ha + yp, psi = Math.atan2(c, yp), zH = a.b / 2, zA = zH + c;
+    const eps = t.eps0 + (t.eps_top - t.eps0) * s;
     const xSh = xb + eps; // el hombro queda donde lo pone la ficha de técnica
-    // La barra no puede atravesar la rodilla: si su centro pasa a menos de KNEE_CLEAR del centro de la rodilla, la barra se adelanta
-    // lo justo respecto del cuerpo (hombro, cadera y rodilla no se mueven: los brazos se inclinan un poco hacia adelante). Con la
-    // rodilla abierta en la dirección del pie casi no actúa. Se itera porque la altura del hombro depende de la inclinación del brazo.
-    let xbe = xb, ySh = 0, dy = 0, xH = 0, K = null;
+
+    const kxTop = knee3d(a, [xa, ha, zA], [uTop, yHTop, zH], t.knee_out_deg)[0];
+    const kx0 = xb + t.knee0;
+    const kxT = kxTop + (kx0 - kxTop) * Math.pow(1 - s, t.knee_p);
+
+    // Cadera (x, y) con el hombro en (xSh, ySh) y la rodilla en x = kxT. La incógnita es la inclinación del tronco phi respecto de
+    // la vertical (no la altura de la cadera, hipersensible con el tronco casi vertical); el límite superior es el alcance de la
+    // pierna. Espejo de model.solve_deadlift.hip_for.
+    function hipFor(ySh) {
+      const at = (phi) => {
+        const xh = xSh - a.Ltr * Math.sin(phi), yh = ySh - a.Ltr * Math.cos(phi);
+        const kn = knee3d(a, [xa, ha, zA], [xh, yh, zH], t.knee_out_deg);
+        if (kn[1] > yh) throw new Infeasible("el muslo quedaría bajo la horizontal"); // la cadera queda sobre la rodilla
+        return [xh, yh, kn];
+      };
+      const f = (phi) => at(phi)[2][0] - kxT; // decrece con phi (la cadera sube y se retrasa)
+      const NOT_REACHED = "la rodilla no alcanza esa posición con estas medidas";
+      let lo = null, hi = null;
+      const N = 48, phiCap = 1.4;
+      for (let i = 0; i <= N; i++) {
+        const phi = phiCap * i / N;
+        let fv;
+        try { fv = f(phi); } catch (e) {
+          if (!(e instanceof Infeasible)) throw e;
+          if (lo === null) continue; // cadera demasiado baja: el muslo bajo la horizontal
+          // se salió del alcance de la pierna: el borde (pierna recta) es el último phi alcanzable
+          let a_ = lo[0], b_ = phi;
+          for (let it = 0; it < 50; it++) {
+            const mid = 0.5 * (a_ + b_);
+            try { f(mid); a_ = mid; } catch (e2) { if (!(e2 instanceof Infeasible)) throw e2; b_ = mid; }
+          }
+          const fe = f(a_);
+          if (fe > 1e-6) throw new Infeasible(NOT_REACHED);
+          hi = [a_, fe];
+          break;
+        }
+        if (Math.abs(fv) < 1e-12) return at(phi);
+        if (lo !== null && (lo[1] > 0) !== (fv > 0)) { hi = [phi, fv]; break; }
+        lo = [phi, fv];
+      }
+      if (hi === null) throw new Infeasible(NOT_REACHED);
+      let a_ = lo[0], fa = lo[1], b_ = hi[0];
+      for (let it = 0; it < 60; it++) {
+        const mid = 0.5 * (a_ + b_);
+        let fm;
+        try { fm = f(mid); } catch (e) { if (!(e instanceof Infeasible)) throw e; b_ = mid; continue; }
+        if ((fm > 0) === (fa > 0)) { a_ = mid; fa = fm; } else b_ = mid;
+      }
+      let phi = 0.5 * (a_ + b_);
+      // La cadera no sube por encima de su altura al bloqueo (ver el comentario de la versión Python): el tronco llega a la
+      // vertical de forma continua y la rodilla es consecuencia.
+      if (ySh - a.Ltr * Math.cos(phi) > yHTop) phi = Math.acos(Math.min(1, (ySh - yHTop) / a.Ltr));
+      return at(phi);
+    }
+
+    // La barra no puede atravesar la pierna (espinilla, rótula, muslo bajo: ver legGap): si la vertical la cruza, la barra se
+    // adelanta lo justo respecto del cuerpo (hombro, cadera y rodilla no se mueven: los brazos se inclinan un poco hacia adelante).
+    // El contorno es continuo, así que el desvío no tiene esquinas. Se itera porque la altura del hombro depende de la inclinación
+    // del brazo.
+    let xbe = xb, ySh = 0, xH = 0, yH = 0, K = null;
     for (let it = 0; it < 12; it++) {
       const e = xSh - xbe;
       ySh = yB + csqrt(a.La * a.La - e * e);
-      dy = ySh - yH;
-      if (dy < 0 || dy > a.Ltr + 1e-9) throw new Infeasible("el hombro no es alcanzable desde esa altura de cadera");
-      xH = xSh - csqrt(a.Ltr * a.Ltr - dy * dy);
-      K = knee3d(a, [xa, ha, zA], [xH, yH, zH], t.knee_out_deg);
-      const dyk = Math.abs(yB - K[1]);
-      const need = dyk < KNEE_CLEAR ? K[0] + Math.sqrt(KNEE_CLEAR * KNEE_CLEAR - dyk * dyk) : -Infinity;
+      [xH, yH, K] = hipFor(ySh);
+      const need = barXClearingLeg(xbe, yB, [xa, ha], [K[0], K[1]], [xH, yH]);
       if (need <= xbe + 1e-7) break;
       xbe = need;
     }
-    const phi = Math.atan2(xSh - xH, dy);
+    const psi = Math.atan2(c, yH - ha);
+    const phi = Math.atan2(xSh - xH, ySh - yH);
     const hip = [xH, yH], knee = [K[0], K[1]], shoulder = [xSh, ySh];
     const fArm = massPoints(a).f_arm_com;
     const armsX = xSh + fArm * (xbe - xSh);
@@ -763,6 +846,29 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
   }
 
   // ---------- «Qué pasaría si»
+  // altura de la cadera al despegar (cm) en función de knee0, para el control «Altura de la cadera»; memoria por atleta y técnica
+  let hipTabCache = null;
+  function hipTable() {
+    if (hipTabCache && hipTabCache.a === ctx.a && hipTabCache.t === ctx.t) return hipTabCache.val;
+    const t = ctx.t, pts = [];
+    for (let k = -0.12; k <= 0.15001; k += 0.005) {
+      try { pts.push([k, P.solve(ctx.a, Object.assign({}, t, { knee0: k }), S.load, 0).joints.cadera[1] * 100]); } catch (e) { if (!(e instanceof P.Infeasible)) throw e; }
+    }
+    pts.sort((p, q) => p[1] - q[1]);   // altura creciente (la cadera sube al llevar la rodilla hacia atrás)
+    const base = P.solve(ctx.a, t, S.load, 0).joints.cadera[1] * 100;
+    const kneeFor = (v) => {
+      if (!pts.length) return t.knee0;
+      if (v <= pts[0][1]) return pts[0][0];
+      for (let i = 1; i < pts.length; i++) {
+        if (v <= pts[i][1]) { const [k0, y0] = pts[i - 1], [k1, y1] = pts[i]; return y1 === y0 ? k1 : k0 + (k1 - k0) * (v - y0) / (y1 - y0); }
+      }
+      return pts[pts.length - 1][0];
+    };
+    const val = { base, min: pts.length ? pts[0][1] : base, max: pts.length ? pts[pts.length - 1][1] : base, kneeFor };
+    hipTabCache = { a: ctx.a, t: ctx.t, val };
+    return val;
+  }
+
   function ctrlDefs() {
     const t = ctx.t, H = ctx.raw.H, dl = t.exercise === "deadlift";
     const wNow = t.stance === "shoulder" && ctx.a.shoulder_w > 0 ? ctx.a.shoulder_w : t.w_frac * H;
@@ -775,9 +881,12 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
       const bar = { id: "bar", field: "bar_x_offset", label: "Posición de la barra respecto al medio pie", base: t.bar_x_offset * 100, step: 0.5, toModel: (v) => v / 100,
         ends: ["hacia el talón", "hacia los dedos"], fmt: (v) => (v > 0 ? "+" : "") + nf(v, 1) + " cm" };
       bar.lo = bar.base - 5; bar.hi = bar.base + 5;
-      const hip = { id: "hip", field: "f_h0", label: "Altura de la cadera al despegar", base: t.f_h0, step: 0.005, toModel: (v) => v, ends: ["más baja", "más alta"],
-        fmt: (v) => { try { return nf(P.solve(ctx.a, Object.assign({}, t, { f_h0: v }), S.load, 0).joints.cadera[1] * 100, 0) + " cm"; } catch (e) { return "—"; } } };
-      hip.lo = Math.max(0.55, t.f_h0 - 0.10); hip.hi = Math.min(0.95, t.f_h0 + 0.06);
+      // La altura de la cadera al despegar ya no es un parámetro del modelo: sale de la posición de la rodilla (knee0). El control se
+      // mantiene en cm de cadera: se tabula la altura para varias posiciones de rodilla y se invierte.
+      const tab = hipTable();
+      const hip = { id: "hip", field: "knee0", label: "Altura de la cadera al despegar", base: tab.base, step: 0.5, ends: ["más baja", "más alta"],
+        toModel: (v) => tab.kneeFor(v), fmt: (v) => nf(v, 0) + " cm" };
+      hip.lo = Math.max(tab.min, tab.base - 10); hip.hi = Math.min(tab.max, tab.base + 6);
       return [bar, hip, stance];
     }
     const depth = { id: "depth", field: "depth_deg", label: "Profundidad del muslo", base: t.depth_deg, step: 0.5, toModel: (v) => v, ends: ["menos profunda", "más profunda"],

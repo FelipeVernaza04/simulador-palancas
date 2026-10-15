@@ -446,6 +446,29 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
   }
 
   // ---------- «Qué pasaría si»
+  // altura de la cadera al despegar (cm) en función de knee0, para el control «Altura de la cadera»; memoria por atleta y técnica
+  let hipTabCache = null;
+  function hipTable() {
+    if (hipTabCache && hipTabCache.a === ctx.a && hipTabCache.t === ctx.t) return hipTabCache.val;
+    const t = ctx.t, pts = [];
+    for (let k = -0.12; k <= 0.15001; k += 0.005) {
+      try { pts.push([k, P.solve(ctx.a, Object.assign({}, t, { knee0: k }), S.load, 0).joints.cadera[1] * 100]); } catch (e) { if (!(e instanceof P.Infeasible)) throw e; }
+    }
+    pts.sort((p, q) => p[1] - q[1]);   // altura creciente (la cadera sube al llevar la rodilla hacia atrás)
+    const base = P.solve(ctx.a, t, S.load, 0).joints.cadera[1] * 100;
+    const kneeFor = (v) => {
+      if (!pts.length) return t.knee0;
+      if (v <= pts[0][1]) return pts[0][0];
+      for (let i = 1; i < pts.length; i++) {
+        if (v <= pts[i][1]) { const [k0, y0] = pts[i - 1], [k1, y1] = pts[i]; return y1 === y0 ? k1 : k0 + (k1 - k0) * (v - y0) / (y1 - y0); }
+      }
+      return pts[pts.length - 1][0];
+    };
+    const val = { base, min: pts.length ? pts[0][1] : base, max: pts.length ? pts[pts.length - 1][1] : base, kneeFor };
+    hipTabCache = { a: ctx.a, t: ctx.t, val };
+    return val;
+  }
+
   function ctrlDefs() {
     const t = ctx.t, H = ctx.raw.H, dl = t.exercise === "deadlift";
     const wNow = t.stance === "shoulder" && ctx.a.shoulder_w > 0 ? ctx.a.shoulder_w : t.w_frac * H;
@@ -458,9 +481,12 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
       const bar = { id: "bar", field: "bar_x_offset", label: "Posición de la barra respecto al medio pie", base: t.bar_x_offset * 100, step: 0.5, toModel: (v) => v / 100,
         ends: ["hacia el talón", "hacia los dedos"], fmt: (v) => (v > 0 ? "+" : "") + nf(v, 1) + " cm" };
       bar.lo = bar.base - 5; bar.hi = bar.base + 5;
-      const hip = { id: "hip", field: "f_h0", label: "Altura de la cadera al despegar", base: t.f_h0, step: 0.005, toModel: (v) => v, ends: ["más baja", "más alta"],
-        fmt: (v) => { try { return nf(P.solve(ctx.a, Object.assign({}, t, { f_h0: v }), S.load, 0).joints.cadera[1] * 100, 0) + " cm"; } catch (e) { return "—"; } } };
-      hip.lo = Math.max(0.55, t.f_h0 - 0.10); hip.hi = Math.min(0.95, t.f_h0 + 0.06);
+      // La altura de la cadera al despegar ya no es un parámetro del modelo: sale de la posición de la rodilla (knee0). El control se
+      // mantiene en cm de cadera: se tabula la altura para varias posiciones de rodilla y se invierte.
+      const tab = hipTable();
+      const hip = { id: "hip", field: "knee0", label: "Altura de la cadera al despegar", base: tab.base, step: 0.5, ends: ["más baja", "más alta"],
+        toModel: (v) => tab.kneeFor(v), fmt: (v) => nf(v, 0) + " cm" };
+      hip.lo = Math.max(tab.min, tab.base - 10); hip.hi = Math.min(tab.max, tab.base + 6);
       return [bar, hip, stance];
     }
     const depth = { id: "depth", field: "depth_deg", label: "Profundidad del muslo", base: t.depth_deg, step: 0.5, toModel: (v) => v, ends: ["menos profunda", "más profunda"],

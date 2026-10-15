@@ -70,13 +70,13 @@ DL = {
         mean=[27.9, -13.2, -4.3, 37, 74, 23.5, -4.8, -5.2, 47], sd=[6.2, 8.0, 5.0, 6, 6, 5.4, 5.4, 5.3, 5],
         w_frac=73 / 168, toe=45),
 }
-DL_PARAMS = ("f_h0", "eps0", "eps_top", "p", "bar_x_offset")
-DL_BOUNDS = ([0.35, -0.02, -0.10, 0.5, -0.25], [0.90, 0.15, 0.02, 2.0, 0.10])
+DL_PARAMS = ("knee0", "eps0", "eps_top", "knee_p", "bar_x_offset")
+DL_BOUNDS = ([-0.10, -0.02, -0.10, 0.5, -0.25], [0.12, 0.15, 0.02, 8.0, 0.10])
 
 
 def dl_tech(key, x):
     d = DL[key]
-    return replace(TECHNIQUES[key], w_frac=d["w_frac"], toe_out_deg=d["toe"], f_h0=x[0], eps0=x[1], eps_top=x[2], p=x[3],
+    return replace(TECHNIQUES[key], w_frac=d["w_frac"], toe_out_deg=d["toe"], knee0=x[0], eps0=x[1], eps_top=x[2], knee_p=x[3],
                    bar_x_offset=x[4], calibrated=True)
 
 
