@@ -677,7 +677,19 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
       const trunkDir = [p.sh[0] - p.hp[0], p.sh[1] - p.hp[1]];
       const L = Math.hypot(trunkDir[0], trunkDir[1]) || 1;
       const headC = [p.sh[0] + trunkDir[0] / L * 0.11, p.sh[1] + trunkDir[1] / L * 0.11];
-      let out = line([p.ank, p.kn, p.hp, p.sh], cls);
+      // Espalda en extensión (tronco más allá de la vertical, hombro detrás de la cadera): la columna se dibuja curva, con la zona
+      // lumbar arqueada hacia adelante; la curvatura crece con los grados de extensión (10° -> 7 cm). Solo cambia el dibujo.
+      const ext = Math.max(0, -(rr.trunk_deg || 0));
+      let spine = [p.hp, p.sh];
+      if (ext > 0.5) {
+        const amp = Math.min(0.10, 0.007 * ext), nrm = [trunkDir[1] / L, -trunkDir[0] / L]; // normal anterior del tronco
+        spine = [];
+        for (let i = 0; i <= 16; i++) {
+          const u = i / 16, off = amp * 1.9 * (1 - u) * Math.sin(Math.PI * u);
+          spine.push([p.hp[0] + u * trunkDir[0] + nrm[0] * off, p.hp[1] + u * trunkDir[1] + nrm[1] * off]);
+        }
+      }
+      let out = line([p.ank, p.kn, p.hp], cls) + line(spine, cls);
       if (exercise() === "deadlift") out += line([p.sh, rr.bar], cls);
       out += '<circle cx="' + X(headC[0]) + '" cy="' + Y(headC[1]) + '" r="' + (isB ? 70 : 78) + '" class="' + (isB ? "seg-b" : "seg-a") + '" style="stroke-width:' + (isB ? 10 : 18) + '"/>';
       return out;
@@ -728,6 +740,9 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
     const sx = X(X0 + 0.04), sy = Y(0) + 0;
     g += '<line class="dim" x1="' + sx + '" x2="' + (sx + 200) + '" y1="' + (Y(0) + 30) + '" y2="' + (Y(0) + 30) + '"/><text class="lab" x="' + (sx + 210) + '" y="' + (Y(0) + 42) + '">20 cm</text>';
     g += '<text class="lab" x="' + (X(r.bar[0]) + 240) + '" y="' + (Y(r.bar[1]) + 12) + '">barra</text>';
+    if (exercise() === "deadlift" && r.trunk_deg < -2) {
+      g += '<text class="lab" x="' + (X(lumbP[0]) - 120) + '" y="' + (Y(lumbP[1]) - 10) + '" text-anchor="end">extensión de espalda ' + nf(-r.trunk_deg, 0) + "°</text>";
+    }
     return g;
   }
 
@@ -883,7 +898,7 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
     const drop = (r.bar[1]).toFixed(2);
     $("#stats").innerHTML = [
       ["Altura de la barra", nf(r.bar[1] * 100, 0) + " cm"],
-      ["Tronco respecto a la vertical", nf(r.trunk_deg, 0) + "°"],
+      ["Tronco respecto a la vertical", r.trunk_deg < -0.5 ? nf(-r.trunk_deg, 0) + "° hacia atrás" : nf(r.trunk_deg, 0) + "°"],
       ["Centro de presión respecto al medio pie", nf(r.cop_x * 100, 0) + " cm (" + (r.cop_in_base ? "dentro" : "fuera") + ")"],
     ].map(([k, v]) => '<div class="stat"><b>' + v + "</b><span>" + k + "</span></div>").join("");
     if (!r.cop_in_base) $("#stats").innerHTML += '<div class="note warn small" style="grid-column:1/-1">El centro de presión queda fuera de la base del pie en este punto: el atleta no podría sostener esta postura con la barra en esa posición.</div>';

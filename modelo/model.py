@@ -15,6 +15,9 @@ BAR_RADIUS = 0.014 # barra olímpica de 28 mm
 KNEE_CLEAR = KNEE_FRONT + BAR_RADIUS   # distancia mínima centro de barra - centro de rodilla en el plano sagital
 SHIN_FRONT = 0.02  # eje tobillo-rodilla -> cara anterior de la espinilla (cresta tibial casi subcutánea) (m) (APROXIMACIÓN)
 THIGH_FRONT = 0.07 # eje rodilla-cadera -> cara anterior del muslo a media altura del muslo (m) (APROXIMACIÓN)
+BAR_TO_HIP = 0.104 # bloqueo: centro de la cadera -> centro de la barra, que apoya en la cara anterior del muslo (m) (APROXIMACIÓN)
+BAR_RETURN_P = 2.0 # la barra vuelve de la vertical sobre el pie hacia su x de bloqueo como s^p (más tarde cuanto mayor)
+LOCKOUT_BLEND_S = 0.85  # desde este s el tronco pasa del que dicta la rodilla al del bloqueo (solo con bar_top_from_ankle)
 
 
 class Infeasible(Exception):
@@ -238,22 +241,30 @@ def solve_deadlift(a: Anthro, t: Technique, load_kg: float, s: float) -> Result:
     x_b = t.bar_x_offset
     z_h = a.b / 2.0
     z_a = z_h + c
-    u_top = x_b + t.eps_top
+    # Bloqueo. Con bar_top_from_ankle la barra termina en x_bar_top (cerca del tobillo), la cadera una profundidad de muslo detrás
+    # de ella y el tronco inclinado `layback_deg` hacia atrás (hombro detrás de la cadera); si no, el de siempre (tronco vertical,
+    # hombro a eps_top de la barra, todo sobre bar_x_offset).
+    layback = t.bar_top_from_ankle is not None
+    x_bar_top = x_a + t.bar_top_from_ankle if layback else x_b
+    phi_top = -math.radians(t.layback_deg) if layback else 0.0
+    u_top = x_bar_top - BAR_TO_HIP if layback else x_b + t.eps_top
+    eps_top = (u_top + a.Ltr * math.sin(phi_top) - x_bar_top) if layback else t.eps_top
     v_top = _clampsqrt((a.Ls + a.Lt) ** 2 - (u_top - x_a) ** 2)
     yp_top = _clampsqrt(v_top ** 2 - c ** 2)
     y_h_top = h_a + yp_top
-    y_b_top = y_h_top + a.Ltr - _clampsqrt(a.La ** 2 - t.eps_top ** 2)
+    y_b_top = y_h_top + a.Ltr * math.cos(phi_top) - _clampsqrt(a.La ** 2 - eps_top ** 2)
     y_b = t.plate_radius + s * (y_b_top - t.plate_radius)
-    eps = t.eps0 + (t.eps_top - t.eps0) * s
-    x_sh = x_b + eps      # el hombro queda donde lo pone la ficha de técnica (hombro por delante de la barra en `eps`)
+    eps = t.eps0 + (eps_top - t.eps0) * s
+    x_bar0 = x_b + (x_bar_top - x_b) * s ** BAR_RETURN_P    # la barra sigue la vertical hasta que la pierna la adelanta
+    x_sh = x_bar0 + eps   # el hombro queda donde lo pone la ficha de técnica (hombro por delante de la barra en `eps`)
 
     # rodilla objetivo: al bloqueo es la de la pierna recta (hombro y cadera en u_top)
     kx_top = _knee_3d(a, (x_a, h_a, z_a), (u_top, y_h_top, z_h), t.knee_out_deg)[0]
     kx_0 = x_b + t.knee0
     kx_t = kx_top + (kx_0 - kx_top) * (1.0 - s) ** t.knee_p
 
-    def hip_for(y_sh):
-        """Cadera (x, y) con el hombro en (x_sh, y_sh) y la rodilla en x = kx_t, y la rodilla 3D resultante.
+    def trunk_for(y_sh, kx_t):
+        """Inclinación del tronco con el hombro en (x_sh, y_sh) y la rodilla en x = kx_t.
 
         La incógnita es la inclinación del tronco phi respecto de la vertical (cadera = hombro - Ltr (sin phi, cos phi)), no la altura
         de la cadera: con el tronco casi vertical la altura es hipersensible (un milímetro de altura mueve la cadera centímetros) y
@@ -271,8 +282,9 @@ def solve_deadlift(a: Anthro, t: Technique, load_kg: float, s: float) -> Result:
 
         lo = None
         N, phi_cap = 48, 1.4
+        phi_min = min(0.0, phi_top) - 0.15 if layback else 0.0   # con extensión de espalda la cadera puede quedar delante del hombro
         for i in range(N + 1):
-            phi = phi_cap * i / N
+            phi = phi_min + (phi_cap - phi_min) * i / N
             try:
                 fv = f(phi)
             except Infeasible:
@@ -293,7 +305,7 @@ def solve_deadlift(a: Anthro, t: Technique, load_kg: float, s: float) -> Result:
                 lo, hi = (lo[0], lo[1]), (a_, fe)
                 break
             if abs(fv) < 1e-12:
-                return at(phi)
+                return phi
             if lo is not None and (lo[1] > 0) != (fv > 0):
                 hi = (phi, fv)
                 break
@@ -318,15 +330,41 @@ def solve_deadlift(a: Anthro, t: Technique, load_kg: float, s: float) -> Result:
         # saltaría a la otra rama (tronco vertical, cadera adelante). En su lugar la cadera se queda a esa altura y la rodilla es
         # consecuencia: el tronco llega a la vertical de forma continua.
         if y_sh - a.Ltr * math.cos(phi) > y_h_top:
-            phi = math.acos(min(1.0, (y_sh - y_h_top) / a.Ltr))
-        return at(phi)
+            phi = math.copysign(math.acos(min(1.0, (y_sh - y_h_top) / a.Ltr)), phi)
+        return phi
+
+    def place(y_sh, phi):
+        """Cadera (x, y) con el tronco inclinado phi y la rodilla 3D resultante."""
+        xh, yh = x_sh - a.Ltr * math.sin(phi), y_sh - a.Ltr * math.cos(phi)
+        kn = _knee_3d(a, (x_a, h_a, z_a), (xh, yh, z_h), t.knee_out_deg)
+        if kn[1] > yh:   # en peso muerto la cadera queda sobre la rodilla (muslo por encima de la horizontal)
+            raise Infeasible("el muslo quedaría bajo la horizontal")
+        return xh, yh, kn
+
+    end_shift = []
+
+    def hip_for(y_sh):
+        """Cadera (x, y) con el hombro en (x_sh, y_sh) y la rodilla en x = kx_t, y la rodilla 3D resultante."""
+        phi = trunk_for(y_sh, kx_t)
+        if layback and s > LOCKOUT_BLEND_S:
+            # Extensión de la espalda. Con la rodilla en su posición de bloqueo el tronco que sale de la geometría de la pierna es el
+            # `phi_end`, no el pedido (phi_top). Esa diferencia se suma de forma gradual (suavizada) desde LOCKOUT_BLEND_S: así el
+            # tronco llega a phi_top al bloqueo sin que la cadera se adelante antes que la rodilla se extienda.
+            if not end_shift:
+                y_sh_end = y_h_top + a.Ltr * math.cos(phi_top)
+                end_shift.append(phi_top - trunk_for(y_sh_end, kx_top))
+            w = (s - LOCKOUT_BLEND_S) / (1.0 - LOCKOUT_BLEND_S)
+            phi += w * w * (3.0 - 2.0 * w) * end_shift[0]
+            if y_sh - a.Ltr * math.cos(phi) > y_h_top:     # la cadera no sube por encima de su altura al bloqueo
+                phi = math.copysign(math.acos(min(1.0, (y_sh - y_h_top) / a.Ltr)), phi)
+        return place(y_sh, phi)
 
     # La barra no puede atravesar la pierna (espinilla, rótula, muslo bajo: ver _leg_gap): si la vertical la cruza, la barra se
     # adelanta lo justo respecto del cuerpo (hombro, cadera y rodilla no se mueven: los brazos se inclinan un poco hacia adelante).
     # El contorno es continuo (la espinilla se une a la rótula y esta al muslo con pendientes suaves), así que el desvío no tiene
     # esquinas. La altura del hombro depende de la inclinación del brazo, y con ella la cadera, así que se itera (la rodilla en x
     # ya es kx_t).
-    xbe = x_b
+    xbe = x_bar0
     for _ in range(12):
         e = x_sh - xbe
         y_sh = y_b + _clampsqrt(a.La ** 2 - e ** 2)

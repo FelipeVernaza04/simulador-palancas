@@ -11,6 +11,9 @@
   const KNEE_CLEAR = KNEE_FRONT + BAR_RADIUS; // distancia mínima centro de barra - centro de rodilla en el plano sagital
   const SHIN_FRONT = 0.02;  // eje tobillo-rodilla -> cara anterior de la espinilla (cresta tibial casi subcutánea) (m) (aproximación)
   const THIGH_FRONT = 0.07; // eje rodilla-cadera -> cara anterior del muslo a media altura del muslo (m) (aproximación)
+  const BAR_TO_HIP = 0.104; // bloqueo: centro de la cadera -> centro de la barra, que apoya en la cara anterior del muslo (m) (aproximación)
+  const BAR_RETURN_P = 2.0; // la barra vuelve de la vertical sobre el pie hacia su x de bloqueo como s^p
+  const LOCKOUT_BLEND_S = 0.85; // desde este s el tronco se lleva al del bloqueo (solo con bar_top_from_ankle)
 
   class Infeasible extends Error {}
 
@@ -74,7 +77,7 @@
 
   // ---------------------------------------------------------------- técnicas (calibradas con literatura; ver README)
   const BASE = { calibrated: false, source: "", ranges: {}, at_bound: [], lam: 1.0, d: 0.06, shank_top_deg: 3.0, shank_max_deg: 35.0,
-    depth_deg: 5.0, bar_x_mode: "midfoot", trunk_top_deg: 0.0, bar_x_offset: 0.0, knee0: 0.03, knee_p: 3.0, eps0: 0.05, eps_top: -0.03, plate_radius: 0.225, stance: "frac",
+    depth_deg: 5.0, bar_x_mode: "midfoot", trunk_top_deg: 0.0, bar_x_offset: 0.0, knee0: 0.03, knee_p: 3.0, eps0: 0.05, eps_top: -0.03, plate_radius: 0.225, bar_top_from_ankle: null, layback_deg: 0.0, stance: "frac",
     toe_out_deg: 0, knee_out_deg: 0, grip_inside: false };
   function T(o) { return Object.assign({}, BASE, o); }
   const TECHNIQUES = {
@@ -85,9 +88,9 @@
     sentadilla_frontal: T({ name: "Sentadilla frontal", exercise: "squat", w_frac: 0.30, toe_out_deg: 0, knee_out_deg: 12, stance: "shoulder", calibrated: false,
       lam: 1.0, d: -0.05, shank_max_deg: 40, depth_deg: 5, bar_x_offset: 0.0 }),
     peso_muerto_convencional: T({ name: "Peso muerto convencional", exercise: "deadlift", w_frac: 37 / 167, toe_out_deg: 15, knee_out_deg: 15, stance: "shoulder", calibrated: true,
-      f_h0: 0.8424, eps0: 0.12, eps_top: 0.0177, p: 1.5633, bar_x_offset: 0 }),
+      knee0: 0.03, knee_p: 3.0, eps0: 0.12, eps_top: 0.0177, bar_x_offset: 0, bar_top_from_ankle: 0.03, layback_deg: 10 }),
     peso_muerto_sumo: T({ name: "Peso muerto sumo", exercise: "deadlift", w_frac: 73 / 168, toe_out_deg: 45, knee_out_deg: 25, grip_inside: true, calibrated: true,
-      f_h0: 0.7762, eps0: 0.102, eps_top: -0.0153, p: 1.2119, bar_x_offset: 0 }),
+      knee0: 0.03, knee_p: 3.0, eps0: 0.102, eps_top: -0.0153, bar_x_offset: 0, bar_top_from_ankle: 0.05, layback_deg: 10 }),
   };
 
   // ---------------------------------------------------------------- modelo
@@ -226,23 +229,30 @@
     // bloqueo, forma (1-s)^knee_p); la altura de la cadera sale por bisección. Espejo de model.solve_deadlift.
     const c = stanceC(a, t), xa = -a.dam, ha = a.ha, xb = t.bar_x_offset;
     const zH = a.b / 2, zA = zH + c;
-    const uTop = xb + t.eps_top;
+    // Bloqueo. Con bar_top_from_ankle la barra termina en xBarTop (cerca del tobillo), la cadera una profundidad de muslo detrás de
+    // ella y el tronco inclinado layback_deg hacia atrás (hombro detrás de la cadera); si no, el de siempre.
+    const layback = t.bar_top_from_ankle !== null && t.bar_top_from_ankle !== undefined;
+    const xBarTop = layback ? xa + t.bar_top_from_ankle : xb;
+    const phiTop = layback ? -t.layback_deg * Math.PI / 180 : 0;
+    const uTop = layback ? xBarTop - BAR_TO_HIP : xb + t.eps_top;
+    const epsTop = layback ? uTop + a.Ltr * Math.sin(phiTop) - xBarTop : t.eps_top;
     const vTop = csqrt((a.Ls + a.Lt) ** 2 - (uTop - xa) ** 2);
     const ypTop = csqrt(vTop * vTop - c * c);
     const yHTop = ha + ypTop;
-    const yBTop = yHTop + a.Ltr - csqrt(a.La * a.La - t.eps_top * t.eps_top);
+    const yBTop = yHTop + a.Ltr * Math.cos(phiTop) - csqrt(a.La * a.La - epsTop * epsTop);
     const yB = t.plate_radius + s * (yBTop - t.plate_radius);
-    const eps = t.eps0 + (t.eps_top - t.eps0) * s;
-    const xSh = xb + eps; // el hombro queda donde lo pone la ficha de técnica
+    const eps = t.eps0 + (epsTop - t.eps0) * s;
+    const xBar0 = xb + (xBarTop - xb) * Math.pow(s, BAR_RETURN_P); // la barra sigue la vertical hasta que la pierna la adelanta
+    const xSh = xBar0 + eps; // el hombro queda donde lo pone la ficha de técnica
 
     const kxTop = knee3d(a, [xa, ha, zA], [uTop, yHTop, zH], t.knee_out_deg)[0];
     const kx0 = xb + t.knee0;
     const kxT = kxTop + (kx0 - kxTop) * Math.pow(1 - s, t.knee_p);
 
-    // Cadera (x, y) con el hombro en (xSh, ySh) y la rodilla en x = kxT. La incógnita es la inclinación del tronco phi respecto de
+    // Inclinación del tronco con el hombro en (xSh, ySh) y la rodilla en x = kxT. La incógnita es la inclinación del tronco phi respecto de
     // la vertical (no la altura de la cadera, hipersensible con el tronco casi vertical); el límite superior es el alcance de la
     // pierna. Espejo de model.solve_deadlift.hip_for.
-    function hipFor(ySh) {
+    function trunkFor(ySh, kxT) {
       const at = (phi) => {
         const xh = xSh - a.Ltr * Math.sin(phi), yh = ySh - a.Ltr * Math.cos(phi);
         const kn = knee3d(a, [xa, ha, zA], [xh, yh, zH], t.knee_out_deg);
@@ -253,8 +263,9 @@
       const NOT_REACHED = "la rodilla no alcanza esa posición con estas medidas";
       let lo = null, hi = null;
       const N = 48, phiCap = 1.4;
+      const phiMin = layback ? Math.min(0, phiTop) - 0.15 : 0; // con extensión de espalda la cadera puede quedar delante del hombro
       for (let i = 0; i <= N; i++) {
-        const phi = phiCap * i / N;
+        const phi = phiMin + (phiCap - phiMin) * i / N;
         let fv;
         try { fv = f(phi); } catch (e) {
           if (!(e instanceof Infeasible)) throw e;
@@ -270,7 +281,7 @@
           hi = [a_, fe];
           break;
         }
-        if (Math.abs(fv) < 1e-12) return at(phi);
+        if (Math.abs(fv) < 1e-12) return phi;
         if (lo !== null && (lo[1] > 0) !== (fv > 0)) { hi = [phi, fv]; break; }
         lo = [phi, fv];
       }
@@ -285,15 +296,39 @@
       let phi = 0.5 * (a_ + b_);
       // La cadera no sube por encima de su altura al bloqueo (ver el comentario de la versión Python): el tronco llega a la
       // vertical de forma continua y la rodilla es consecuencia.
-      if (ySh - a.Ltr * Math.cos(phi) > yHTop) phi = Math.acos(Math.min(1, (ySh - yHTop) / a.Ltr));
-      return at(phi);
+      if (ySh - a.Ltr * Math.cos(phi) > yHTop) phi = Math.sign(phi || 1) * Math.acos(Math.min(1, (ySh - yHTop) / a.Ltr));
+      return phi;
+    }
+
+
+    // Cadera (x, y) con el tronco inclinado phi y la rodilla 3D resultante (la cadera debe quedar sobre la rodilla).
+    function place(ySh, phi) {
+      const xh = xSh - a.Ltr * Math.sin(phi), yh = ySh - a.Ltr * Math.cos(phi);
+      const kn = knee3d(a, [xa, ha, zA], [xh, yh, zH], t.knee_out_deg);
+      if (kn[1] > yh) throw new Infeasible("el muslo quedaría bajo la horizontal");
+      return [xh, yh, kn];
+    }
+
+    let endShift = null;
+    // Espejo de model.solve_deadlift.hip_for: con extensión de espalda, la diferencia entre el tronco del bloqueo pedido (phiTop) y
+    // el que sale de la geometría de la pierna se suma de forma gradual (suavizada) desde LOCKOUT_BLEND_S.
+    function hipFor(ySh) {
+      let phi = trunkFor(ySh, kxT);
+      if (layback && s > LOCKOUT_BLEND_S) {
+        if (endShift === null) endShift = phiTop - trunkFor(yHTop + a.Ltr * Math.cos(phiTop), kxTop);
+        let w = (s - LOCKOUT_BLEND_S) / (1 - LOCKOUT_BLEND_S);
+        w = w * w * (3 - 2 * w);
+        phi += w * endShift;
+        if (ySh - a.Ltr * Math.cos(phi) > yHTop) phi = Math.sign(phi || 1) * Math.acos(Math.min(1, (ySh - yHTop) / a.Ltr));
+      }
+      return place(ySh, phi);
     }
 
     // La barra no puede atravesar la pierna (espinilla, rótula, muslo bajo: ver legGap): si la vertical la cruza, la barra se
     // adelanta lo justo respecto del cuerpo (hombro, cadera y rodilla no se mueven: los brazos se inclinan un poco hacia adelante).
     // El contorno es continuo, así que el desvío no tiene esquinas. Se itera porque la altura del hombro depende de la inclinación
     // del brazo.
-    let xbe = xb, ySh = 0, xH = 0, yH = 0, K = null;
+    let xbe = xBar0, ySh = 0, xH = 0, yH = 0, K = null;
     for (let it = 0; it < 12; it++) {
       const e = xSh - xbe;
       ySh = yB + csqrt(a.La * a.La - e * e);

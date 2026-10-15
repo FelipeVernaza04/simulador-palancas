@@ -5,7 +5,7 @@ import pytest
 
 from anthropometry import (SAMPLE_MALE, from_raw, closure_checks, total_mass_check, mass_points, G, DE_LEVA)
 from techniques import TECHNIQUES
-from model import solve, Infeasible, KNEE_CLEAR, SHIN_FRONT, BAR_RADIUS, _knee_3d, _two_link, _seg_dist
+from model import solve, Infeasible, KNEE_CLEAR, SHIN_FRONT, BAR_RADIUS, BAR_RETURN_P, _knee_3d, _two_link, _seg_dist
 from uncertainty import draw_perturbations, monte_carlo
 
 A = from_raw(SAMPLE_MALE)
@@ -60,18 +60,35 @@ def test_knee_3d_keeps_hip_ankle_distance_and_branch_forward():
     assert k45[2] > k0[2] and k45[0] < k0[0]
 
 
-def test_deadlift_arm_length_and_bar_only_moves_forward_to_clear_the_knee():
-    t = TECHNIQUES["peso_muerto_convencional"]
+@pytest.mark.parametrize("key", ["peso_muerto_convencional", "peso_muerto_sumo"])
+def test_deadlift_arm_length_and_bar_only_moves_forward_to_clear_the_leg(key):
+    t = TECHNIQUES[key]
+    x_top = -A.dam + t.bar_top_from_ankle if t.bar_top_from_ankle is not None else t.bar_x_offset
     shifted = 0
     for s in [i / 20 for i in range(21)]:
         r = solve(A, t, 150, s)
         xs, ys = r.joints["hombro"]
         assert math.hypot(r.bar[0] - xs, r.bar[1] - ys) == pytest.approx(A.La, abs=1e-6)
-        assert r.bar[0] >= t.bar_x_offset - 1e-12            # solo se adelanta, nunca se atrasa
-        shifted += r.bar[0] > t.bar_x_offset + 1e-9
-    assert shifted < 21                                       # fuera del cruce con la rodilla la barra sigue la vertical
+        base = t.bar_x_offset + (x_top - t.bar_x_offset) * s ** BAR_RETURN_P     # la vertical que seguiría sin la pierna
+        assert r.bar[0] >= base - 1e-12                                        # solo se adelanta, nunca se atrasa
+        shifted += r.bar[0] > base + 1e-9
+    assert shifted < 21                                                        # fuera del cruce con la pierna sigue la vertical
     assert solve(A, t, 150, 0.0).bar[0] == pytest.approx(t.bar_x_offset, abs=1e-12)
-    assert solve(A, t, 150, 1.0).bar[0] == pytest.approx(t.bar_x_offset, abs=1e-12)
+    assert solve(A, t, 150, 1.0).bar[0] == pytest.approx(x_top, abs=1e-9)
+
+
+@pytest.mark.parametrize("key", ["peso_muerto_convencional", "peso_muerto_sumo"])
+def test_lockout_has_back_extension_and_bar_near_the_ankle_line(key):
+    t = TECHNIQUES[key]
+    r = solve(A, t, 150, 1.0)
+    assert r.trunk_deg == pytest.approx(-t.layback_deg, abs=1e-6)               # hombro por detrás de la cadera
+    assert r.bar[0] - r.joints["tobillo"][0] == pytest.approx(t.bar_top_from_ankle, abs=1e-9)
+    assert r.joints["cadera"][0] < r.bar[0] - 0.09                              # la barra queda por delante del muslo
+    assert r.cop_in_base                                                       # y el atleta no se cae hacia atrás
+    # el tronco cruza la vertical de forma continua: de inclinado hacia adelante a hacia atrás, sin saltos
+    trunk = [solve(A, t, 150, i / 100).trunk_deg for i in range(101)]
+    assert trunk[0] > 40 and trunk[-1] < -5
+    assert max(abs(x - y) for x, y in zip(trunk, trunk[1:])) < 4.0           # <= 3,4° por 1 % del recorrido (en la cúspide final)
 
 
 @pytest.mark.parametrize("key", ["peso_muerto_convencional", "peso_muerto_sumo"])
