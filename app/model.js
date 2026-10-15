@@ -88,9 +88,9 @@
     sentadilla_frontal: T({ name: "Sentadilla frontal", exercise: "squat", w_frac: 0.30, toe_out_deg: 0, knee_out_deg: 12, stance: "shoulder", calibrated: false,
       lam: 1.0, d: -0.05, shank_max_deg: 40, depth_deg: 5, bar_x_offset: 0.0 }),
     peso_muerto_convencional: T({ name: "Peso muerto convencional", exercise: "deadlift", w_frac: 37 / 167, toe_out_deg: 15, knee_out_deg: 15, stance: "shoulder", calibrated: true,
-      knee0: 0.03, knee_p: 3.0, eps0: 0.12, eps_top: 0.0177, bar_x_offset: 0, bar_top_from_ankle: 0.03, layback_deg: 10 }),
+      knee0: 0.03, knee_p: 3.0, eps0: 0.12, eps_top: 0.0177, bar_x_offset: 0, bar_top_from_ankle: 0.10, layback_deg: 10 }),
     peso_muerto_sumo: T({ name: "Peso muerto sumo", exercise: "deadlift", w_frac: 73 / 168, toe_out_deg: 45, knee_out_deg: 25, grip_inside: true, calibrated: true,
-      knee0: 0.03, knee_p: 3.0, eps0: 0.102, eps_top: -0.0153, bar_x_offset: 0, bar_top_from_ankle: 0.05, layback_deg: 10 }),
+      knee0: 0.03, knee_p: 3.0, eps0: 0.102, eps_top: -0.0153, bar_x_offset: 0, bar_top_from_ankle: 0.10, layback_deg: 10 }),
   };
 
   // ---------------------------------------------------------------- modelo

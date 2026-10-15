@@ -68,9 +68,11 @@ TECHNIQUES = {
         # barra vertical sobre el medio pie (bar_x_offset = 0, FIJO por criterio de entrenador; ajuste previo con la barra libre:
         # -3,2 cm [-5,3, +1,7]); los otros cuatro parámetros se reajustaron con la barra ahí y la rodilla 3D.
         knee_out_deg=15.0, knee0=0.03, knee_p=3.0, eps0=0.12, eps_top=0.0177, bar_x_offset=0.0,
-        # bloqueo con extensión de espalda: la barra termina 3 cm por delante de la línea del tobillo y el tronco pasa 10° de la
-        # vertical (ilustrativos: sin fuente). Con esto eps_top no se usa: el hombro queda donde lo dejan la barra y el tronco.
-        bar_top_from_ankle=0.03, layback_deg=10.0,
+        # bloqueo con extensión de espalda: piernas verticales (cadera sobre el tobillo), la barra apoyada en el muslo (10 cm por
+        # delante del tobillo) y el tronco 10° más allá de la vertical (ilustrativos: sin fuente). Con esto eps_top no se usa: el
+        # hombro queda donde lo dejan la barra y el tronco. Con la barra en la línea del tobillo y apoyada en el muslo las piernas
+        # quedaban inclinadas hacia atrás y la figura se veía como cayendo.
+        bar_top_from_ankle=0.10, layback_deg=10.0,
         at_bound=("eps0",),
         ranges={}),
     "peso_muerto_sumo": Technique(
@@ -78,8 +80,7 @@ TECHNIQUES = {
         # barra vertical sobre el medio pie (bar_x_offset = 0, FIJO por criterio de entrenador; el ajuste previo con la barra libre
         # daba -7,5 cm, sobre el tobillo, que dejaba la barra dentro de la tibia y la rodilla).
         knee_out_deg=25.0, grip_inside=True, knee0=0.03, knee_p=3.0, eps0=0.102, eps_top=-0.0153, bar_x_offset=0.0,
-        # 5 cm (no 3): con 45° de rotación externa la base antero-posterior es corta (±9 cm) y con 3 cm el CoP cae sobre el talón.
-        bar_top_from_ankle=0.05, layback_deg=10.0,
+        bar_top_from_ankle=0.10, layback_deg=10.0,
         at_bound=(),
         ranges={}),
 }

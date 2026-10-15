@@ -316,9 +316,9 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
     sentadilla_frontal: T({ name: "Sentadilla frontal", exercise: "squat", w_frac: 0.30, toe_out_deg: 0, knee_out_deg: 12, stance: "shoulder", calibrated: false,
       lam: 1.0, d: -0.05, shank_max_deg: 40, depth_deg: 5, bar_x_offset: 0.0 }),
     peso_muerto_convencional: T({ name: "Peso muerto convencional", exercise: "deadlift", w_frac: 37 / 167, toe_out_deg: 15, knee_out_deg: 15, stance: "shoulder", calibrated: true,
-      knee0: 0.03, knee_p: 3.0, eps0: 0.12, eps_top: 0.0177, bar_x_offset: 0, bar_top_from_ankle: 0.03, layback_deg: 10 }),
+      knee0: 0.03, knee_p: 3.0, eps0: 0.12, eps_top: 0.0177, bar_x_offset: 0, bar_top_from_ankle: 0.10, layback_deg: 10 }),
     peso_muerto_sumo: T({ name: "Peso muerto sumo", exercise: "deadlift", w_frac: 73 / 168, toe_out_deg: 45, knee_out_deg: 25, grip_inside: true, calibrated: true,
-      knee0: 0.03, knee_p: 3.0, eps0: 0.102, eps_top: -0.0153, bar_x_offset: 0, bar_top_from_ankle: 0.05, layback_deg: 10 }),
+      knee0: 0.03, knee_p: 3.0, eps0: 0.102, eps_top: -0.0153, bar_x_offset: 0, bar_top_from_ankle: 0.10, layback_deg: 10 }),
   };
 
   // ---------------------------------------------------------------- modelo
@@ -1113,14 +1113,14 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
       const L = Math.hypot(trunkDir[0], trunkDir[1]) || 1;
       const headC = [p.sh[0] + trunkDir[0] / L * 0.11, p.sh[1] + trunkDir[1] / L * 0.11];
       // Espalda en extensión (tronco más allá de la vertical, hombro detrás de la cadera): la columna se dibuja curva, con la zona
-      // lumbar arqueada hacia adelante; la curvatura crece con los grados de extensión (10° -> 7 cm). Solo cambia el dibujo.
+      // lumbar arqueada hacia adelante; la curvatura crece con los grados de extensión (10° -> 5 cm). Solo cambia el dibujo.
       const ext = Math.max(0, -(rr.trunk_deg || 0));
       let spine = [p.hp, p.sh];
       if (ext > 0.5) {
-        const amp = Math.min(0.10, 0.007 * ext), nrm = [trunkDir[1] / L, -trunkDir[0] / L]; // normal anterior del tronco
+        const amp = Math.min(0.08, 0.005 * ext), nrm = [trunkDir[1] / L, -trunkDir[0] / L]; // normal anterior del tronco
         spine = [];
-        for (let i = 0; i <= 16; i++) {
-          const u = i / 16, off = amp * 1.9 * (1 - u) * Math.sin(Math.PI * u);
+        for (let i = 0; i <= 24; i++) {
+          const u = i / 24, off = amp * 6.75 * u * (1 - u) * (1 - u); // máximo (amp) a un tercio del tronco; sin esquinas
           spine.push([p.hp[0] + u * trunkDir[0] + nrm[0] * off, p.hp[1] + u * trunkDir[1] + nrm[1] * off]);
         }
       }
@@ -1176,7 +1176,7 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
     g += '<line class="dim" x1="' + sx + '" x2="' + (sx + 200) + '" y1="' + (Y(0) + 30) + '" y2="' + (Y(0) + 30) + '"/><text class="lab" x="' + (sx + 210) + '" y="' + (Y(0) + 42) + '">20 cm</text>';
     g += '<text class="lab" x="' + (X(r.bar[0]) + 240) + '" y="' + (Y(r.bar[1]) + 12) + '">barra</text>';
     if (exercise() === "deadlift" && r.trunk_deg < -2) {
-      g += '<text class="lab" x="' + (X(lumbP[0]) - 120) + '" y="' + (Y(lumbP[1]) - 10) + '" text-anchor="end">extensión de espalda ' + nf(-r.trunk_deg, 0) + "°</text>";
+      g += '<text class="lab" x="' + (X(r.bar[0]) + 240) + '" y="' + (Y(lumbP[1]) - 30) + '">extensión ' + nf(-r.trunk_deg, 0) + "°</text>";
     }
     return g;
   }
