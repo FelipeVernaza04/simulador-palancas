@@ -1112,19 +1112,7 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
       const trunkDir = [p.sh[0] - p.hp[0], p.sh[1] - p.hp[1]];
       const L = Math.hypot(trunkDir[0], trunkDir[1]) || 1;
       const headC = [p.sh[0] + trunkDir[0] / L * 0.11, p.sh[1] + trunkDir[1] / L * 0.11];
-      // Espalda en extensión (tronco más allá de la vertical, hombro detrás de la cadera): la columna se dibuja curva, con la zona
-      // lumbar arqueada hacia adelante; la curvatura crece con los grados de extensión (10° -> 5 cm). Solo cambia el dibujo.
-      const ext = Math.max(0, -(rr.trunk_deg || 0));
-      let spine = [p.hp, p.sh];
-      if (ext > 0.5) {
-        const amp = Math.min(0.08, 0.005 * ext), nrm = [trunkDir[1] / L, -trunkDir[0] / L]; // normal anterior del tronco
-        spine = [];
-        for (let i = 0; i <= 24; i++) {
-          const u = i / 24, off = amp * 6.75 * u * (1 - u) * (1 - u); // máximo (amp) a un tercio del tronco; sin esquinas
-          spine.push([p.hp[0] + u * trunkDir[0] + nrm[0] * off, p.hp[1] + u * trunkDir[1] + nrm[1] * off]);
-        }
-      }
-      let out = line([p.ank, p.kn, p.hp], cls) + line(spine, cls);
+      let out = line([p.ank, p.kn, p.hp, p.sh], cls);
       if (exercise() === "deadlift") out += line([p.sh, rr.bar], cls);
       out += '<circle cx="' + X(headC[0]) + '" cy="' + Y(headC[1]) + '" r="' + (isB ? 70 : 78) + '" class="' + (isB ? "seg-b" : "seg-a") + '" style="stroke-width:' + (isB ? 10 : 18) + '"/>';
       return out;
