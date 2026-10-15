@@ -269,7 +269,7 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
 
   let S = {
     step: 0, tech: "peso_muerto_sumo", load: 150, sex: "M", mass: "", H: "", m: {}, controls: false,
-    s: 0, compare: "", perKg: false, tab: "res", wi: {}, legView: "lat", plane: "sag", explain: false,
+    s: 0, compare: "", perKg: false, tab: "res", wi: {}, legView: "real", plane: "sag", explain: false,
   };
   const ctx = {}; // datos calculados en la pantalla de resultados
 
@@ -618,7 +618,6 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
       '<button type="button" class="btn primary" id="x-open">Explicar con el atleta</button>' +
       '<div class="unit-tog" role="group" aria-label="Plano de la figura"><button type="button" data-plane="sag" aria-pressed="' + (S.plane === "sag") + '">Lateral</button><button type="button" data-plane="front" aria-pressed="' + (S.plane === "front") + '">Frontal</button></div>' +
       '<svg class="fig" id="fig" viewBox="0 0 1000 1900" role="img" aria-label="Figura de palitos con el brazo de palanca de la barra en cada articulación"></svg>' +
-      '<div class="unit-tog" id="legtog" role="group" aria-label="Vista de las piernas" style="margin-top:8px"><button type="button" data-lv="real" aria-pressed="' + (S.legView === "real") + '">Piernas reales</button><button type="button" data-lv="lat" aria-pressed="' + (S.legView === "lat") + '">Vista lateral</button></div>' +
       '<p class="small muted" id="fignote" style="margin:6px 0 0"></p>' +
       '<div class="sl"><label for="sl" class="small"><b>Recorrido: <span id="slv">' + Math.round(S.s * 100) + '</span> %</b></label><input type="range" id="sl" min="0" max="1" step="0.005" value="' + S.s + '">' +
       '<div class="sl-ends"><span>' + (sq ? "De pie" : "Barra en el suelo") + "</span><span>" + (sq ? "Fondo" : "Bloqueo") + "</span></div></div>" +
@@ -877,7 +876,6 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
     $("#fig").innerHTML = fr ? drawFront(r, rB) : drawFigure(r, rB);
     $("#fignote").textContent = fr ? frontNote(r) : figNote(r);
     $("#fighelp").textContent = fr ? FRONT_HELP : SAG_HELP;
-    $("#legtog").style.display = fr ? "none" : "";
     const bA = P.band(ctx.set, t, S.load, S.s);
     const bB = tB ? P.band(ctx.set, tB, S.load, S.s) : null;
     $d("#bars").innerHTML = barsHTML(bA, bB, r);
@@ -1048,7 +1046,6 @@ details ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; colo
     else if (t.id === "x-back") { S.explain = false; render(); }
     else if (t.id === "x-play") { playExplain(); }
     else if (t.dataset.xm != null) { stopPlay(); S.s = ctx.moments[+t.dataset.xm].s; updateExplain(); }
-    else if (t.dataset.lv) { S.legView = t.dataset.lv; document.querySelectorAll("[data-lv]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.lv === t.dataset.lv))); updateResults(); }
     else if (t.dataset.plane) { S.plane = t.dataset.plane; document.querySelectorAll("[data-plane]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.plane === S.plane))); updateResults(); }
     else if (t.dataset.tab) { S.tab = t.dataset.tab; if (S.tab === "wi") S.compare = ""; refreshRight(); }
     else if (t.id === "wi-reset") { S.wi = {}; refreshRight(); }
